@@ -67,6 +67,7 @@ def _extract_apply_link(cell: str) -> str:
 def parse_listings(readme: str) -> list[Listing]:
     """Parse HTML <tr><td> rows from the SimplifyJobs README."""
     listings = []
+    last_company = ""
 
     # Extract all <tr> blocks
     rows = re.findall(r"<tr>(.*?)</tr>", readme, re.DOTALL | re.IGNORECASE)
@@ -88,8 +89,14 @@ def parse_listings(readme: str) -> list[Listing]:
             continue
 
         company = _strip_html(company_cell)
-        # Remove emoji prefixes like 🔥
+        # Remove emoji prefixes like 🔥 🛂 🎓
         company = re.sub(r"^[\U0001F300-\U0001FFFF\s]+", "", company).strip()
+
+        # ↳ means "same company as above"
+        if company in ("↳", "") or not company:
+            company = last_company
+        else:
+            last_company = company
 
         role = _strip_html(role_cell)
         location = _strip_html(location_cell)

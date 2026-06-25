@@ -152,7 +152,7 @@ def run_pipeline(dry_run: bool = False) -> dict:
         if dry_run:
             print(f"  [dry-run] Would generate for {listing.company}")
             stats["processed"] += 1
-            processed.add(listing_id)
+            # Do NOT add to processed — dry-run must not affect future real runs
             stats["listings"].append({"company": listing.company, "role": listing.role, "status": "dry-run"})
             continue
 
@@ -219,8 +219,9 @@ def run_pipeline(dry_run: bool = False) -> dict:
         processed.add(listing_id)
         _save_processed(processed_path, processed)
 
-    # Final save of processed set
-    _save_processed(processed_path, processed)
+    # Final save of processed set (skipped in dry-run)
+    if not dry_run:
+        _save_processed(processed_path, processed)
 
     # --- Write summary ---
     _write_summary(output_dir, stats)
