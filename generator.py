@@ -62,6 +62,7 @@ def _build_resume_prompt(
     listing: dict,
     email_context: str = "",
     research_context: str = "",
+    job_description: str = "",
 ) -> str:
     company = listing.get("company", "")
     role = listing.get("role", "")
@@ -78,6 +79,9 @@ def _build_resume_prompt(
         "## My Preferences\n" + context.get("preferences", ""),
     ]
 
+    if job_description:
+        parts += ["", "## Job Posting (tailor directly to these requirements)\n" + job_description]
+
     if email_context:
         parts += ["", "## Recruiter Email Context (use to personalize)\n" + email_context]
 
@@ -87,8 +91,9 @@ def _build_resume_prompt(
     parts += [
         "",
         "## Instructions",
-        "- Select only experience and projects tagged for this type of role",
-        "- Tailor every bullet to the company's tech stack and values (use the research context above)",
+        "- Mirror keywords and phrases from the Job Posting section above — ATS systems scan for these",
+        "- Select only experience and projects relevant to the specific requirements listed",
+        "- Tailor every bullet to skills, tools, and tech mentioned in the posting",
         "- Keep it to one page in Markdown",
         "- Use strong action verbs and quantified impact where possible",
         "- Output ONLY the resume markdown, no preamble or explanation",
@@ -102,6 +107,7 @@ def _build_cover_letter_prompt(
     listing: dict,
     email_context: str = "",
     research_context: str = "",
+    job_description: str = "",
 ) -> str:
     company = listing.get("company", "")
     role = listing.get("role", "")
@@ -118,6 +124,9 @@ def _build_cover_letter_prompt(
         "## My Preferences\n" + context.get("preferences", ""),
     ]
 
+    if job_description:
+        parts += ["", "## Job Posting (reference specific requirements and responsibilities)\n" + job_description]
+
     if email_context:
         parts += ["", "## Recruiter Email Context\n" + email_context]
 
@@ -129,7 +138,7 @@ def _build_cover_letter_prompt(
         "## Instructions",
         "- Follow my voice guide strictly — match my tone, avoid the phrases I listed to avoid",
         "- 3 short paragraphs max: hook, body (why me + why them), close",
-        "- Reference specific things about the company from the research context",
+        "- Reference specific requirements or projects from the Job Posting — show you read it",
         "- If recruiter emails exist, subtly acknowledge the relationship",
         "- Output ONLY the cover letter markdown, no preamble or explanation",
     ]
@@ -141,6 +150,7 @@ def generate(
     listing: dict,
     email_context: str = "",
     research_context: str = "",
+    job_description: str = "",
     model: str = DEFAULT_MODEL,
     base_url: str = OLLAMA_BASE_URL,
     temperature: float = 0.7,
@@ -151,8 +161,8 @@ def generate(
     """
     context = _load_context_files()
 
-    resume_prompt = _build_resume_prompt(context, listing, email_context, research_context)
-    cover_prompt = _build_cover_letter_prompt(context, listing, email_context, research_context)
+    resume_prompt = _build_resume_prompt(context, listing, email_context, research_context, job_description)
+    cover_prompt = _build_cover_letter_prompt(context, listing, email_context, research_context, job_description)
 
     print(f"[generator] Generating resume for {listing.get('company')}...", flush=True)
     resume_md = _call_ollama(resume_prompt, model=model, base_url=base_url,

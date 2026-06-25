@@ -10,7 +10,8 @@ scraper:
 
 gmail:
   mcp_url: "https://gmailmcp.googleapis.com/mcp/v1"
-  max_results: 5
+  max_results: 5           # emails to fetch when cross-referencing a company
+  recruiter_scan_limit: 30 # emails to scan for independent recruiter listings
 
 research:
   enabled: true
@@ -19,6 +20,7 @@ research:
 output:
   base_dir: "output"
   processed_file: "processed.json"
+  fetch_job_descriptions: true  # fetch full posting text from listing URLs
 
 schedule:
   interval_hours: 24
