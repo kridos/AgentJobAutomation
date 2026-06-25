@@ -1,0 +1,24 @@
+ollama:
+  base_url: "http://localhost:11434"
+  model: "qwen2.5"
+  temperature: 0.7
+  max_tokens: 4096
+
+scraper:
+  repo: "SimplifyJobs/Summer2027-Internships"
+  branch: "dev"  # SimplifyJobs uses dev branch for current listings
+
+gmail:
+  mcp_url: "https://gmailmcp.googleapis.com/mcp/v1"
+  max_results: 5
+
+research:
+  enabled: true
+  timeout_seconds: 30
+
+output:
+  base_dir: "output"
+  processed_file: "processed.json"
+
+schedule:
+  interval_hours: 24
