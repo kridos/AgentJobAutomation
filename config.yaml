@@ -1,11 +1,11 @@
 ollama:
   base_url: "http://localhost:11434"
-  model: "qwen2.5"
+  model: "qwen3:14b"
   temperature: 0.7
   max_tokens: 4096
 
 scraper:
-  repo: "SimplifyJobs/Summer2027-Internships"
+  repo: "SimplifyJobs/Summer2026-Internships"
   branch: "dev"  # SimplifyJobs uses dev branch for current listings
 
 gmail:
