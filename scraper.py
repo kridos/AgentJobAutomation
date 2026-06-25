@@ -30,10 +30,9 @@ def _fetch_readme_raw(repo: str, branch: str = "dev") -> str:
         ["gh", "api", f"repos/{repo}/contents/README.md",
          "-H", "Accept: application/vnd.github.raw+json"],
         capture_output=True,
-        text=True,
-        check=True,
+        check=True,  # bytes mode — no text=True, avoids Windows cp1252 decode errors
     )
-    return result.stdout
+    return result.stdout.decode("utf-8", errors="replace")
 
 
 def _strip_html(text: str) -> str:
@@ -111,17 +110,33 @@ def parse_listings(readme: str) -> list[Listing]:
     return listings
 
 
-def scrape(repo: str = "SimplifyJobs/Summer2026-Internships", branch: str = "dev") -> list[Listing]:
+def _resolve_repo() -> str:
+    """Try 2027 repo first; fall back to 2026 if it doesn't exist yet."""
+    for repo in [
+        "SimplifyJobs/Summer2027-Internships",
+        "SimplifyJobs/Summer2026-Internships",
+    ]:
+        try:
+            _fetch_readme_raw(repo)
+            print(f"[scraper] Using repo: {repo}")
+            return repo
+        except subprocess.CalledProcessError:
+            continue
+    raise RuntimeError("Neither Summer2027 nor Summer2026 repo found on GitHub.")
+
+
+def scrape(repo: str = "", branch: str = "dev") -> list[Listing]:
+    if not repo:
+        repo = _resolve_repo()
     readme = _fetch_readme_raw(repo, branch)
     return parse_listings(readme)
 
 
 if __name__ == "__main__":
     import sys
-    repo = "SimplifyJobs/Summer2026-Internships"
-    print(f"Fetching listings from {repo}...", flush=True)
+    print("Fetching listings (auto-detecting repo year)...", flush=True)
     try:
-        listings = scrape(repo)
+        listings = scrape()
         print(f"Found {len(listings)} listings\n")
         for l in listings[:10]:
             print(json.dumps(asdict(l), indent=2))

@@ -5,7 +5,7 @@ ollama:
   max_tokens: 4096
 
 scraper:
-  repo: "SimplifyJobs/Summer2026-Internships"
+  repo: ""  # leave empty to auto-detect: tries 2027 first, falls back to 2026
   branch: "dev"  # SimplifyJobs uses dev branch for current listings
 
 gmail:
