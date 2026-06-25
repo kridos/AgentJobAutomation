@@ -26,10 +26,41 @@ def _load_config() -> dict:
 
 def _load_processed(processed_path: Path) -> set[str]:
     if processed_path.exists():
-        with open(processed_path) as f:
-            data = json.load(f)
-        return set(data) if isinstance(data, list) else set(data.keys())
+        try:
+            with open(processed_path, encoding="utf-8-sig") as f:
+                data = json.load(f)
+            return set(data) if isinstance(data, list) else set(data.keys())
+        except (json.JSONDecodeError, ValueError):
+            print("[pipeline] processed.json is malformed — starting fresh", file=sys.stderr)
     return set()
+
+
+def _load_archive_ids() -> dict[str, str]:
+    """
+    Returns {listing_id: archive_filename} for every ID across all archive files.
+    Used to warn the user when a listing was processed in a previous run.
+    """
+    archive_dir = Path("archive")
+    id_to_file: dict[str, str] = {}
+    if not archive_dir.exists():
+        return id_to_file
+    for archive_file in sorted(archive_dir.glob("processed_*.json")):
+        try:
+            ids = json.loads(archive_file.read_text(encoding="utf-8-sig"))
+            for entry in ids:
+                id_to_file[entry] = archive_file.name
+        except Exception:
+            pass
+    return id_to_file
+
+
+def _auto_archive(processed_path: Path) -> None:
+    """Archive and clear processed.json at the end of a successful run."""
+    from archive_processed import archive
+    try:
+        archive(clear=True)
+    except Exception as e:
+        print(f"[pipeline] Auto-archive failed (non-fatal): {e}", file=sys.stderr)
 
 
 def _save_processed(processed_path: Path, processed: set[str]) -> None:
@@ -83,6 +114,7 @@ def _process_listing(
     dry_run: bool,
     stats: dict,
     source: str,  # "simplify" or "gmail"
+    archive_ids: dict,
     email_context: str = "",
     prefetched_job_description: str = "",
 ) -> None:
@@ -92,6 +124,18 @@ def _process_listing(
     from job_fetcher import fetch_job_description
 
     print(f"\n[{source}] Processing: {company} — {role}", flush=True)
+
+    # --- Archive cross-check ---
+    if listing_id in archive_ids:
+        archive_file = archive_ids[listing_id]
+        print(f"  [archive] ⚠  Already processed in {archive_file}:")
+        print(f"             Company:  {company}")
+        print(f"             Role:     {role}")
+        if location: print(f"             Location: {location}")
+        if link:     print(f"             Link:     {link}")
+        print(f"  [archive] Skipping. To reprocess, delete this ID from archive/{archive_file}")
+        stats["skipped_duplicate"] += 1
+        return
 
     if dry_run:
         print(f"  [dry-run] Would generate for {company}")
@@ -146,8 +190,10 @@ def _process_listing(
         return
 
     # --- Save to source-specific subfolder ---
+    # Include role slug so multiple roles at the same company don't collide
     company_slug = _slugify(company)
-    company_dir = output_dir / source / company_slug
+    role_slug    = _slugify(role)[:40]
+    company_dir  = output_dir / source / company_slug / role_slug
     company_dir.mkdir(parents=True, exist_ok=True)
 
     (company_dir / "resume.md").write_text(resume_md, encoding="utf-8")
@@ -202,8 +248,12 @@ def run_pipeline(dry_run: bool = False) -> dict:
         "listings": [],
     }
 
-    processed      = _load_processed(processed_path)
+    processed        = _load_processed(processed_path)
+    archive_ids      = _load_archive_ids()
     preferences_text = _load_preferences()
+
+    if archive_ids:
+        print(f"[pipeline] Loaded {len(archive_ids)} IDs from archives for cross-check", flush=True)
 
     common_args = dict(
         processed=processed,
@@ -216,6 +266,7 @@ def run_pipeline(dry_run: bool = False) -> dict:
         dry_run=dry_run,
         stats=stats,
         output_dir=output_dir,
+        archive_ids=archive_ids,
     )
 
     # ── Source 1: SimplifyJobs ────────────────────────────────────────────────
@@ -300,6 +351,7 @@ def run_pipeline(dry_run: bool = False) -> dict:
     # ── Final save + summary ──────────────────────────────────────────────────
     if not dry_run:
         _save_processed(processed_path, processed)
+        _auto_archive(processed_path)
 
     _write_summary(output_dir, stats)
     return stats
