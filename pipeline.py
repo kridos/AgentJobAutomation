@@ -344,10 +344,10 @@ def _process_listing(
         },
         "score": {
             "overall": score_meta.get("overall", 0),
-            "requirements": score_meta.get("requirements", 0),
-            "specificity": score_meta.get("specificity", 0),
-            "conciseness": score_meta.get("conciseness", 0),
-            "factual_compliance": score_meta.get("factual_compliance", 0),
+            "tier": score_meta.get("tier", "C"),
+            "scores": score_meta.get("scores", {}),
+            "matched_keywords": score_meta.get("matched_keywords", []),
+            "missing_keywords": score_meta.get("missing_keywords", []),
         },
     })
 
@@ -572,48 +572,106 @@ def _write_summary(output_dir: Path, stats: dict) -> None:
     gmail_items    = [l for l in stats["listings"] if l.get("source") == "gmail"]
     processed_items = [l for l in stats["listings"] if l.get("status") == "processed"]
 
+    # Calculate statistics
     avg_overall = 0.0
-    avg_requirements = 0.0
+    avg_req_match = 0.0
+    avg_tailoring = 0.0
+    avg_specificity = 0.0
+    tier_counts = {"A": 0, "B": 0, "C": 0, "D": 0, "F": 0}
+    
     if processed_items:
-        avg_overall = sum(item.get("score", {}).get("overall", 0) for item in processed_items) / len(processed_items)
-        avg_requirements = sum(item.get("score", {}).get("requirements", 0) for item in processed_items) / len(processed_items)
+        for item in processed_items:
+            score_data = item.get("score", {})
+            overall = score_data.get("overall", 0)
+            avg_overall += overall
+            
+            scores = score_data.get("scores", {})
+            avg_req_match += scores.get("requirements_match", 0)
+            avg_tailoring += scores.get("tailoring_depth", 0)
+            avg_specificity += scores.get("specificity", 0)
+            
+            tier = score_data.get("tier", "C")
+            tier_counts[tier] += 1
+        
+        count = len(processed_items)
+        avg_overall /= count
+        avg_req_match /= count
+        avg_tailoring /= count
+        avg_specificity /= count
 
     lines = [
         f"# Pipeline Run Summary — {stats['date']}",
         "",
+        "## Pipeline Statistics",
         f"- **Total found:** {stats['found']}",
         f"- **Duplicates skipped:** {stats['skipped_duplicate']}",
         f"- **Filtered out:** {stats['skipped_filter']}",
         f"- **Blocked by validation:** {stats['blocked_validation']}",
         f"- **Processed:** {stats['processed']}",
         f"- **Errors:** {len(stats['errors'])}",
-        f"- **Average quality score:** {avg_overall:.1f}",
-        f"- **Average requirement match:** {avg_requirements:.1f}",
+        "",
+        "## Quality Metrics",
+        f"- **Average overall score:** {avg_overall:.1f}/100",
+        f"- **Requirements match:** {avg_req_match:.1f}/100",
+        f"- **Tailoring depth:** {avg_tailoring:.1f}/100",
+        f"- **Specificity:** {avg_specificity:.1f}/100",
+        "",
+        "## Quality Tier Distribution",
+        f"- **A (Excellent, 85+):** {tier_counts['A']}",
+        f"- **B (Good, 75-84):** {tier_counts['B']}",
+        f"- **C (Fair, 65-74):** {tier_counts['C']}",
+        f"- **D (Weak, 50-64):** {tier_counts['D']}",
+        f"- **F (Poor, <50):** {tier_counts['F']}",
         "",
     ]
 
     if simplify_items:
         lines.append(f"## SimplifyJobs ({len(simplify_items)} processed)\n")
-        for item in simplify_items:
+        for item in sorted(simplify_items, key=lambda x: x.get("score", {}).get("overall", 0), reverse=True):
             status = item.get("status", "processed")
-            jd = " ✓ job desc" if item.get("has_job_description") else ""
-            score = item.get("score", {}).get("overall", 0)
-            lines.append(f"- **{item['company']}** — {item.get('role', '')} [{status}] score={score:.1f}{jd}")
-            if item.get("link"): lines.append(f"  - {item['link']}")
+            jd = " ✓" if item.get("has_job_description") else ""
+            score_data = item.get("score", {})
+            overall = score_data.get("overall", 0)
+            tier = score_data.get("tier", "C")
+            scores = score_data.get("scores", {})
+            req = scores.get("requirements_match", 0)
+            tailor = scores.get("tailoring_depth", 0)
+            
+            lines.append(f"- **{item['company']}** — {item.get('role', '')} [{tier}] {overall:.1f}/100{jd}")
+            lines.append(f"  - Match: {req:.0f} | Tailoring: {tailor:.0f}")
+            if item.get("link"): 
+                lines.append(f"  - {item['link']}")
         lines.append("")
 
     if gmail_items:
         lines.append(f"## Gmail Recruiter Emails ({len(gmail_items)} processed)\n")
-        for item in gmail_items:
+        for item in sorted(gmail_items, key=lambda x: x.get("score", {}).get("overall", 0), reverse=True):
             status = item.get("status", "processed")
-            score = item.get("score", {}).get("overall", 0)
-            lines.append(f"- **{item['company']}** — {item.get('role', '')} [{status}] score={score:.1f}")
+            score_data = item.get("score", {})
+            overall = score_data.get("overall", 0)
+            tier = score_data.get("tier", "C")
+            lines.append(f"- **{item['company']}** — {item.get('role', '')} [{tier}] {overall:.1f}/100")
         lines.append("")
 
     if stats["errors"]:
         lines.append("## Errors\n")
-        for err in stats["errors"]:
+        for err in stats["errors"][:10]:  # Show first 10 errors
             lines.append(f"- {err}")
+        if len(stats["errors"]) > 10:
+            lines.append(f"- ... and {len(stats['errors']) - 10} more errors")
+        lines.append("")
+
+    lines.extend([
+        "## Quality Score Guide",
+        "See [SCORING_README.md](../SCORING_README.md) for detailed explanations.",
+        "",
+        "**Tier meanings:**",
+        "- **A (85+):** Excellent, highly tailored and specific",
+        "- **B (75-84):** Good, well-tailored with solid specifics",
+        "- **C (65-74):** Fair, basic match with some tailoring",
+        "- **D (50-64):** Weak, needs significant improvement",
+        "- **F (<50):** Poor, generic or missing key requirements",
+    ])
 
     summary_path = output_dir / "summary.md"
     summary_path.write_text("\n".join(lines), encoding="utf-8")
