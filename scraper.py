@@ -139,6 +139,16 @@ def scrape(repo: str = "", branch: str = "dev") -> list[Listing]:
     return parse_listings(readme)
 
 
+def scrape_newgrad(branch: str = "dev") -> list[Listing]:
+    """Scrape SimplifyJobs/New-Grad-Positions repo (entry-level full-time roles)."""
+    try:
+        readme = _fetch_readme_raw("SimplifyJobs/New-Grad-Positions", branch)
+        return parse_listings(readme)
+    except subprocess.CalledProcessError as e:
+        print(f"[scraper] New-Grad-Positions repo not found: {e}")
+        return []
+
+
 if __name__ == "__main__":
     import sys
     print("Fetching listings (auto-detecting repo year)...", flush=True)

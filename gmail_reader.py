@@ -10,14 +10,23 @@ Run standalone:
 """
 
 import json
+import os
 import re
 import sys
 import httpx
 from dataclasses import dataclass, asdict, field
+from pathlib import Path
 from typing import Optional
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env", override=False)
+except ImportError:
+    pass
 
 GMAIL_MCP_URL = "https://gmailmcp.googleapis.com/mcp/v1"
+DEFAULT_SEARCH_TOOL = "search_threads"
+_TOOL_NAME_CACHE: dict[str, str] = {}
 
 # Recruiter email search query for independent sourcing
 RECRUITER_QUERY = (
@@ -29,6 +38,13 @@ RECRUITER_QUERY = (
 
 # ── MCP helpers ──────────────────────────────────────────────────────────────
 
+def _get_auth_headers() -> dict:
+    token = os.environ.get("GMAIL_MCP_TOKEN", "").strip()
+    if token:
+        return {"Authorization": f"Bearer {token}"}
+    return {}
+
+
 def _mcp_call(tool: str, params: dict, mcp_url: str = GMAIL_MCP_URL) -> dict:
     payload = {
         "jsonrpc": "2.0",
@@ -36,12 +52,67 @@ def _mcp_call(tool: str, params: dict, mcp_url: str = GMAIL_MCP_URL) -> dict:
         "method": "tools/call",
         "params": {"name": tool, "arguments": params},
     }
-    resp = httpx.post(mcp_url, json=payload, timeout=15.0)
+    resp = httpx.post(mcp_url, json=payload, headers=_get_auth_headers(), timeout=15.0)
     resp.raise_for_status()
     data = resp.json()
     if "error" in data:
         raise RuntimeError(f"MCP error: {data['error']}")
     return data.get("result", {})
+
+
+def _mcp_list_tools(mcp_url: str = GMAIL_MCP_URL) -> list[str]:
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {},
+    }
+    resp = httpx.post(mcp_url, json=payload, headers=_get_auth_headers(), timeout=15.0)
+    resp.raise_for_status()
+    data = resp.json()
+    if "error" in data:
+        raise RuntimeError(f"MCP error: {data['error']}")
+
+    result = data.get("result", {})
+    tools = result.get("tools", [])
+    return [tool.get("name", "") for tool in tools if isinstance(tool, dict) and tool.get("name")]
+
+
+def _resolve_search_tool_name(mcp_url: str = GMAIL_MCP_URL, configured_tool: str = "") -> str:
+    cache_key = f"{mcp_url}|{configured_tool}"
+    if cache_key in _TOOL_NAME_CACHE:
+        return _TOOL_NAME_CACHE[cache_key]
+
+    candidates = [
+        configured_tool,
+        DEFAULT_SEARCH_TOOL,
+        "search_emails",
+        "gmail_search_emails",
+        "gmail.search_emails",
+        "gmail_search_threads",
+        "gmail.search_threads",
+    ]
+    candidates = [name for name in candidates if name]
+
+    try:
+        tools = _mcp_list_tools(mcp_url)
+    except Exception:
+        _TOOL_NAME_CACHE[cache_key] = configured_tool or DEFAULT_SEARCH_TOOL
+        return _TOOL_NAME_CACHE[cache_key]
+
+    for candidate in candidates:
+        if candidate in tools:
+            _TOOL_NAME_CACHE[cache_key] = candidate
+            return candidate
+
+    for tool in tools:
+        lowered = tool.lower()
+        if "search" in lowered and ("email" in lowered or "thread" in lowered):
+            _TOOL_NAME_CACHE[cache_key] = tool
+            return tool
+
+    _TOOL_NAME_CACHE[cache_key] = configured_tool or DEFAULT_SEARCH_TOOL
+    return _TOOL_NAME_CACHE[cache_key]
 
 
 def _parse_mcp_content(result: dict) -> list[dict]:
@@ -65,11 +136,13 @@ def search_emails(
     company: str,
     max_results: int = 5,
     mcp_url: str = GMAIL_MCP_URL,
+    tool_name: str = "",
 ) -> list[dict]:
     """Find emails in Gmail that mention a specific company."""
     query = f'"{company}" (internship OR recruiting OR opportunity OR application)'
     try:
-        result = _mcp_call("search_emails", {"query": query, "max_results": max_results}, mcp_url=mcp_url)
+        resolved_tool = _resolve_search_tool_name(mcp_url, tool_name)
+        result = _mcp_call(resolved_tool, {"query": query, "max_results": max_results}, mcp_url=mcp_url)
         return _parse_mcp_content(result)
     except Exception as e:
         print(f"[gmail_reader] Warning: could not search Gmail for '{company}': {e}", file=sys.stderr)
@@ -158,13 +231,15 @@ def _extract_role_from_email(subject: str, body: str) -> str:
 def get_recruiter_listings(
     max_results: int = 20,
     mcp_url: str = GMAIL_MCP_URL,
+    tool_name: str = "",
 ) -> list[EmailListing]:
     """
     Scan Gmail for recruiter outreach emails and return them as EmailListing objects.
     Each listing contains the full email body as the job description context.
     """
     try:
-        result = _mcp_call("search_emails", {"query": RECRUITER_QUERY, "max_results": max_results}, mcp_url=mcp_url)
+        resolved_tool = _resolve_search_tool_name(mcp_url, tool_name)
+        result = _mcp_call(resolved_tool, {"query": RECRUITER_QUERY, "max_results": max_results}, mcp_url=mcp_url)
         emails = _parse_mcp_content(result)
     except Exception as e:
         print(f"[gmail_reader] Could not fetch recruiter listings: {e}", file=sys.stderr)

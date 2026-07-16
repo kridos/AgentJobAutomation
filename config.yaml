@@ -1,8 +1,12 @@
 ollama:
   base_url: "http://localhost:11434"
   model: "qwen3:14b"
-  temperature: 0.7
+  temperature: 0.3
   max_tokens: 4096
+
+validation:
+  mode: "balanced"        # warn-only | balanced
+  retry_count: 1           # balanced mode uses one corrective retry
 
 scraper:
   repo: ""  # leave empty to auto-detect: tries 2027 first, falls back to 2026
@@ -10,8 +14,19 @@ scraper:
 
 gmail:
   mcp_url: "https://gmailmcp.googleapis.com/mcp/v1"
+  tool_name: ""           # optional override if the MCP server exposes a non-default Gmail search tool name
   max_results: 5           # emails to fetch when cross-referencing a company
   recruiter_scan_limit: 30 # emails to scan for independent recruiter listings
+
+crawl4ai:
+  enabled: false          # set to true to scrape additional job boards (LinkedIn, Glassdoor, etc.)
+  limits:
+    linkedin: 15          # max listings to scrape per board
+    glassdoor: 20
+
+scoring:
+  enabled: true
+  rewrite_threshold: 65   # trigger one quality-improvement rewrite if overall score is below this
 
 research:
   enabled: true

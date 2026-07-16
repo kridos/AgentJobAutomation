@@ -1,6 +1,6 @@
 """
 Main pipeline: scrape → filter → deduplicate → fetch description → research → generate → save.
-Two sources: SimplifyJobs repo and Gmail recruiter emails (separate output folders).
+Sources: SimplifyJobs Summer Internships, SimplifyJobs New-Grad-Positions, crawl4ai job boards (optional), and Gmail recruiter emails.
 """
 
 import json
@@ -97,6 +97,7 @@ def _slugify(name: str) -> str:
 def _process_listing(
     *,
     listing_id: str,
+    config: dict = {},  # noqa: B006
     company: str,
     role: str,
     location: str,
@@ -120,8 +121,10 @@ def _process_listing(
 ) -> None:
     from generator import generate
     from researcher import research
+    from scorer import score_application
     from gmail_reader import search_emails, format_emails_for_context
     from job_fetcher import fetch_job_description
+    from factual_validator import validate_outputs, format_validation_feedback
 
     print(f"\n[{source}] Processing: {company} — {role}", flush=True)
 
@@ -158,6 +161,7 @@ def _process_listing(
                 company,
                 max_results=gmail_cfg.get("max_results", 5),
                 mcp_url=gmail_cfg.get("mcp_url", "https://gmailmcp.googleapis.com/mcp/v1"),
+                tool_name=gmail_cfg.get("tool_name", ""),
             )
             email_context = format_emails_for_context(emails)
         except Exception as e:
@@ -171,7 +175,25 @@ def _process_listing(
         except Exception as e:
             print(f"  [pipeline] Research failed (non-fatal): {e}", file=sys.stderr)
 
-    # --- Generate ---
+    validation_meta = {
+        "mode": "balanced",
+        "retry_used": False,
+        "passed": False,
+        "violation_count": 0,
+        "categories": [],
+        "violations": [],
+    }
+    score_meta = {
+        "overall": 0,
+        "requirements": 0,
+        "specificity": 0,
+        "conciseness": 0,
+        "factual_compliance": 0,
+        "matched_keywords": [],
+        "missing_keywords": [],
+    }
+
+    # --- Generate + Validate (balanced policy: one corrective retry) ---
     try:
         resume_md, cover_md = generate(
             listing_dict,
@@ -183,11 +205,105 @@ def _process_listing(
             temperature=ollama_cfg.get("temperature", 0.7),
             max_tokens=ollama_cfg.get("max_tokens", 4096),
         )
+
+        first_validation = validate_outputs(resume_md, cover_md, listing_dict)
+        if first_validation.get("passed", False):
+            validation_meta.update(first_validation)
+        else:
+            validation_meta.update(first_validation)
+            feedback = format_validation_feedback(first_validation)
+            retry_temperature = min(float(ollama_cfg.get("temperature", 0.7)), 0.2)
+            print("  [pipeline] Validation failed. Retrying once with corrective guidance...", flush=True)
+            resume_md, cover_md = generate(
+                listing_dict,
+                email_context=email_context,
+                research_context=research_context,
+                job_description=job_description,
+                validation_feedback=feedback,
+                model=ollama_cfg.get("model", "qwen3:14b"),
+                base_url=ollama_cfg.get("base_url", "http://localhost:11434"),
+                temperature=retry_temperature,
+                max_tokens=ollama_cfg.get("max_tokens", 4096),
+            )
+            second_validation = validate_outputs(resume_md, cover_md, listing_dict)
+            validation_meta.update(second_validation)
+            validation_meta["retry_used"] = True
+
+            if not second_validation.get("passed", False):
+                msg = (
+                    f"Validation blocked for {company} ({role}): "
+                    f"{second_validation.get('violation_count', 0)} unsupported claim(s)"
+                )
+                print(f"  [pipeline] ERROR: {msg}", file=sys.stderr)
+                stats["errors"].append(msg)
+                stats["blocked_validation"] += 1
+                stats["listings"].append({
+                    "company": company,
+                    "role": role,
+                    "source": source,
+                    "location": location,
+                    "link": link,
+                    "status": "blocked-validation",
+                    "validation": validation_meta,
+                })
+                return
     except Exception as e:
         msg = f"Generation failed for {company}: {e}"
         print(f"  [pipeline] ERROR: {msg}", file=sys.stderr)
         stats["errors"].append(msg)
         return
+
+    score_meta = score_application(
+        resume_md=resume_md,
+        cover_md=cover_md,
+        job_description=job_description,
+        listing=listing_dict,
+        validation_result=validation_meta,
+    )
+
+    # --- Score-threshold quality rewrite (one pass if below threshold) ---
+    scoring_cfg = config.get("scoring", {}) if "config" in dir() else {}
+    score_threshold = float(ollama_cfg.get("score_rewrite_threshold",
+                             scoring_cfg.get("rewrite_threshold", 65.0)))
+    if score_meta.get("overall", 100) < score_threshold:
+        print(f"  [pipeline] Score {score_meta['overall']:.1f} below threshold {score_threshold:.0f} — rewriting for quality...", flush=True)
+        try:
+            missing_kws = score_meta.get("missing_keywords", [])
+            quality_feedback = ""
+            if missing_kws:
+                quality_feedback = (
+                    f"The application scored low on requirement match. "
+                    f"These relevant keywords from the job posting are not yet reflected: {', '.join(missing_kws)}. "
+                    f"Incorporate them only if they are genuinely supported by My Master Resume."
+                )
+            resume_md2, cover_md2 = generate(
+                listing_dict,
+                email_context=email_context,
+                research_context=research_context,
+                job_description=job_description,
+                validation_feedback=quality_feedback,
+                model=ollama_cfg.get("model", "qwen3:14b"),
+                base_url=ollama_cfg.get("base_url", "http://localhost:11434"),
+                temperature=min(float(ollama_cfg.get("temperature", 0.3)), 0.25),
+                max_tokens=ollama_cfg.get("max_tokens", 4096),
+            )
+            rewrite_validation = validate_outputs(resume_md2, cover_md2, listing_dict)
+            if rewrite_validation.get("passed", False):
+                resume_md, cover_md = resume_md2, cover_md2
+                score_meta = score_application(
+                    resume_md=resume_md,
+                    cover_md=cover_md,
+                    job_description=job_description,
+                    listing=listing_dict,
+                    validation_result=rewrite_validation,
+                )
+                validation_meta.update(rewrite_validation)
+                score_meta["quality_rewrite"] = True
+                print(f"  [pipeline] Quality rewrite accepted — new score {score_meta['overall']:.1f}", flush=True)
+            else:
+                print(f"  [pipeline] Quality rewrite failed validation — keeping original output", flush=True)
+        except Exception as e:
+            print(f"  [pipeline] Quality rewrite failed (non-fatal): {e}", file=sys.stderr)
 
     # --- Save to source-specific subfolder ---
     # Include role slug so multiple roles at the same company don't collide
@@ -196,9 +312,16 @@ def _process_listing(
     company_dir  = output_dir / source / company_slug / role_slug
     company_dir.mkdir(parents=True, exist_ok=True)
 
+    listing_out = dict(listing_dict)
+    listing_out["_generation"] = {
+        "validation": validation_meta,
+        "score": score_meta,
+    }
+
     (company_dir / "resume.md").write_text(resume_md, encoding="utf-8")
     (company_dir / "cover_letter.md").write_text(cover_md, encoding="utf-8")
-    (company_dir / "listing.json").write_text(json.dumps(listing_dict, indent=2), encoding="utf-8")
+    (company_dir / "listing.json").write_text(json.dumps(listing_out, indent=2), encoding="utf-8")
+    (company_dir / "quality_score.json").write_text(json.dumps(score_meta, indent=2), encoding="utf-8")
     if job_description:
         (company_dir / "job_description.txt").write_text(job_description, encoding="utf-8")
 
@@ -213,6 +336,19 @@ def _process_listing(
         "output_dir": str(company_dir),
         "status": "processed",
         "has_job_description": bool(job_description),
+        "validation": {
+            "passed": validation_meta.get("passed", False),
+            "violation_count": validation_meta.get("violation_count", 0),
+            "retry_used": validation_meta.get("retry_used", False),
+            "categories": validation_meta.get("categories", []),
+        },
+        "score": {
+            "overall": score_meta.get("overall", 0),
+            "requirements": score_meta.get("requirements", 0),
+            "specificity": score_meta.get("specificity", 0),
+            "conciseness": score_meta.get("conciseness", 0),
+            "factual_compliance": score_meta.get("factual_compliance", 0),
+        },
     })
 
     processed.add(listing_id)
@@ -243,6 +379,7 @@ def run_pipeline(dry_run: bool = False) -> dict:
         "found": 0,
         "skipped_duplicate": 0,
         "skipped_filter": 0,
+        "blocked_validation": 0,
         "processed": 0,
         "errors": [],
         "listings": [],
@@ -267,17 +404,18 @@ def run_pipeline(dry_run: bool = False) -> dict:
         stats=stats,
         output_dir=output_dir,
         archive_ids=archive_ids,
+        config=config,
     )
 
     # ── Source 1: SimplifyJobs ────────────────────────────────────────────────
     print("[pipeline] Scraping SimplifyJobs listings...", flush=True)
-    from scraper import scrape
+    from scraper import scrape, scrape_newgrad
     repo   = scraper_cfg.get("repo", "")
     branch = scraper_cfg.get("branch", "dev")
     try:
         listings = scrape(repo, branch)
         stats["found"] += len(listings)
-        print(f"[pipeline] Found {len(listings)} SimplifyJobs listings", flush=True)
+        print(f"[pipeline] Found {len(listings)} SimplifyJobs internship listings", flush=True)
     except Exception as e:
         msg = f"Scraper failed: {e}"
         print(f"[pipeline] ERROR: {msg}", file=sys.stderr)
@@ -305,13 +443,85 @@ def run_pipeline(dry_run: bool = False) -> dict:
             **common_args,
         )
 
-    # ── Source 2: Gmail recruiter emails ─────────────────────────────────────
+    # ── Source 1B: SimplifyJobs New-Grad-Positions ─────────────────────────────
+    print("[pipeline] Scraping SimplifyJobs New-Grad-Positions...", flush=True)
+    try:
+        newgrad_listings = scrape_newgrad(branch)
+        stats["found"] += len(newgrad_listings)
+        print(f"[pipeline] Found {len(newgrad_listings)} new grad listings", flush=True)
+    except Exception as e:
+        msg = f"New-Grad scraper failed: {e}"
+        print(f"[pipeline] ERROR: {msg}", file=sys.stderr)
+        stats["errors"].append(msg)
+        newgrad_listings = []
+
+    for listing in newgrad_listings:
+        if listing.id in processed:
+            stats["skipped_duplicate"] += 1
+            continue
+        passes, reason = _filter_listing(listing.role, listing.company, preferences_text)
+        if not passes:
+            print(f"[pipeline] Skipping {listing.company} — {reason}")
+            stats["skipped_filter"] += 1
+            continue
+        _process_listing(
+            listing_id=listing.id,
+            company=listing.company,
+            role=listing.role,
+            location=listing.location,
+            link=listing.link,
+            date_posted=listing.date_posted,
+            listing_dict=asdict(listing),
+            source="simplify",
+            **common_args,
+        )
+
+    # ── Source 2: crawl4ai job boards ────────────────────────────────────────
+    crawl4ai_enabled = config.get("crawl4ai", {}).get("enabled", False)
+    if crawl4ai_enabled:
+        print("\n[pipeline] Scraping additional job boards (crawl4ai)...", flush=True)
+        try:
+            from crawl4ai_scraper import scrape_async_wrapper
+            crawl4ai_limits = config.get("crawl4ai", {}).get("limits", {})
+            crawl4ai_listings = scrape_async_wrapper(limits=crawl4ai_limits)
+            stats["found"] += len(crawl4ai_listings)
+            print(f"[pipeline] Found {len(crawl4ai_listings)} crawl4ai listings", flush=True)
+        except ImportError:
+            print("[pipeline] crawl4ai not installed — skipping. Run: pip install crawl4ai", file=sys.stderr)
+            crawl4ai_listings = []
+        except Exception as e:
+            print(f"[pipeline] crawl4ai scrape failed (non-fatal): {e}", file=sys.stderr)
+            crawl4ai_listings = []
+        
+        for listing in crawl4ai_listings:
+            if listing.id in processed:
+                stats["skipped_duplicate"] += 1
+                continue
+            passes, reason = _filter_listing(listing.role, listing.company, preferences_text)
+            if not passes:
+                print(f"[pipeline] Skipping {listing.company} — {reason}")
+                stats["skipped_filter"] += 1
+                continue
+            _process_listing(
+                listing_id=listing.id,
+                company=listing.company,
+                role=listing.role,
+                location=listing.location,
+                link=listing.link,
+                date_posted=listing.date_posted,
+                listing_dict=asdict(listing),
+                source="crawl4ai",
+                **common_args,
+            )
+
+    # ── Source 3: Gmail recruiter emails ─────────────────────────────────────
     print("\n[pipeline] Scanning Gmail for recruiter listings...", flush=True)
     from gmail_reader import get_recruiter_listings
     try:
         gmail_listings = get_recruiter_listings(
             max_results=gmail_cfg.get("recruiter_scan_limit", 30),
             mcp_url=gmail_cfg.get("mcp_url", "https://gmailmcp.googleapis.com/mcp/v1"),
+            tool_name=gmail_cfg.get("tool_name", ""),
         )
         stats["found"] += len(gmail_listings)
         print(f"[pipeline] Found {len(gmail_listings)} Gmail recruiter listing(s)", flush=True)
@@ -360,6 +570,13 @@ def run_pipeline(dry_run: bool = False) -> dict:
 def _write_summary(output_dir: Path, stats: dict) -> None:
     simplify_items = [l for l in stats["listings"] if l.get("source") == "simplify"]
     gmail_items    = [l for l in stats["listings"] if l.get("source") == "gmail"]
+    processed_items = [l for l in stats["listings"] if l.get("status") == "processed"]
+
+    avg_overall = 0.0
+    avg_requirements = 0.0
+    if processed_items:
+        avg_overall = sum(item.get("score", {}).get("overall", 0) for item in processed_items) / len(processed_items)
+        avg_requirements = sum(item.get("score", {}).get("requirements", 0) for item in processed_items) / len(processed_items)
 
     lines = [
         f"# Pipeline Run Summary — {stats['date']}",
@@ -367,8 +584,11 @@ def _write_summary(output_dir: Path, stats: dict) -> None:
         f"- **Total found:** {stats['found']}",
         f"- **Duplicates skipped:** {stats['skipped_duplicate']}",
         f"- **Filtered out:** {stats['skipped_filter']}",
+        f"- **Blocked by validation:** {stats['blocked_validation']}",
         f"- **Processed:** {stats['processed']}",
         f"- **Errors:** {len(stats['errors'])}",
+        f"- **Average quality score:** {avg_overall:.1f}",
+        f"- **Average requirement match:** {avg_requirements:.1f}",
         "",
     ]
 
@@ -377,7 +597,8 @@ def _write_summary(output_dir: Path, stats: dict) -> None:
         for item in simplify_items:
             status = item.get("status", "processed")
             jd = " ✓ job desc" if item.get("has_job_description") else ""
-            lines.append(f"- **{item['company']}** — {item.get('role', '')} [{status}]{jd}")
+            score = item.get("score", {}).get("overall", 0)
+            lines.append(f"- **{item['company']}** — {item.get('role', '')} [{status}] score={score:.1f}{jd}")
             if item.get("link"): lines.append(f"  - {item['link']}")
         lines.append("")
 
@@ -385,7 +606,8 @@ def _write_summary(output_dir: Path, stats: dict) -> None:
         lines.append(f"## Gmail Recruiter Emails ({len(gmail_items)} processed)\n")
         for item in gmail_items:
             status = item.get("status", "processed")
-            lines.append(f"- **{item['company']}** — {item.get('role', '')} [{status}]")
+            score = item.get("score", {}).get("overall", 0)
+            lines.append(f"- **{item['company']}** — {item.get('role', '')} [{status}] score={score:.1f}")
         lines.append("")
 
     if stats["errors"]:
