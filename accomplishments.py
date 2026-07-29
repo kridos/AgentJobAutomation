@@ -41,13 +41,48 @@ def log_entry(text: str, tags: str | None = None, base_dir: Path = Path(".")) ->
         f.write(line)
 
 
+def flush(base_dir: Path = Path(".")) -> int:
+    recent_path = _recent_updates_path(base_dir)
+
+    if not recent_path.exists():
+        print("Nothing to flush.")
+        return 0
+
+    staged = recent_path.read_text(encoding="utf-8")
+    lines = [line for line in staged.splitlines() if line.strip()]
+    if not lines:
+        print("Nothing to flush.")
+        return 0
+
+    accomplishments_path = _accomplishments_path(base_dir)
+    accomplishments_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(accomplishments_path, "a", encoding="utf-8") as f:
+        for line in lines:
+            f.write(line + "\n")
+
+    archive_dir = _archive_dir(base_dir)
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    archive_path = archive_dir / f"recent_updates_{timestamp}.md"
+    shutil.copy2(recent_path, archive_path)
+
+    recent_path.write_text("", encoding="utf-8")
+
+    print(f"Flushed {len(lines)} entr{'y' if len(lines) == 1 else 'ies'} to {accomplishments_path}")
+    return len(lines)
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python accomplishments.py \"some update\" [--tags a,b]", file=sys.stderr)
+        print("       python accomplishments.py flush", file=sys.stderr)
         sys.exit(1)
-    text_arg = sys.argv[1]
-    tags_arg = None
-    if "--tags" in sys.argv:
-        tags_arg = sys.argv[sys.argv.index("--tags") + 1]
-    log_entry(text_arg, tags=tags_arg)
-    print("Logged.")
+    if sys.argv[1] == "flush":
+        flush()
+    else:
+        text_arg = sys.argv[1]
+        tags_arg = None
+        if "--tags" in sys.argv:
+            tags_arg = sys.argv[sys.argv.index("--tags") + 1]
+        log_entry(text_arg, tags=tags_arg)
+        print("Logged.")

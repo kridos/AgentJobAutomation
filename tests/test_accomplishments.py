@@ -43,3 +43,67 @@ class _FixedDate:
 
 from datetime import date as _real_date
 _FIXED_DATE = _real_date(2026, 7, 29)
+
+
+from accomplishments import flush
+
+
+def test_flush_moves_staged_entries_to_accomplishments(tmp_path):
+    recent_path = tmp_path / "context" / "recent_updates.md"
+    recent_path.parent.mkdir(parents=True)
+    recent_path.write_text(
+        "- 2026-07-15 [tags: backend] Migrated Provn's auth service to JWT\n"
+        "- 2026-07-29 [tags: robotics] Shipped RGB-D fusion milestone\n",
+        encoding="utf-8",
+    )
+
+    count = flush(base_dir=tmp_path)
+
+    assert count == 2
+    accomplishments_content = (tmp_path / "context" / "accomplishments.md").read_text(encoding="utf-8")
+    assert "Migrated Provn's auth service to JWT" in accomplishments_content
+    assert "Shipped RGB-D fusion milestone" in accomplishments_content
+    assert recent_path.read_text(encoding="utf-8") == ""
+
+
+def test_flush_archives_staged_content(tmp_path):
+    recent_path = tmp_path / "context" / "recent_updates.md"
+    recent_path.parent.mkdir(parents=True)
+    recent_path.write_text("- 2026-07-29 Some entry\n", encoding="utf-8")
+
+    flush(base_dir=tmp_path)
+
+    archive_dir = tmp_path / "context" / "archive"
+    archive_files = list(archive_dir.glob("recent_updates_*.md"))
+    assert len(archive_files) == 1
+    assert archive_files[0].read_text(encoding="utf-8") == "- 2026-07-29 Some entry\n"
+
+
+def test_flush_appends_to_existing_accomplishments(tmp_path):
+    context_dir = tmp_path / "context"
+    context_dir.mkdir()
+    (context_dir / "accomplishments.md").write_text("- 2026-06-01 Old entry\n", encoding="utf-8")
+    (context_dir / "recent_updates.md").write_text("- 2026-07-29 New entry\n", encoding="utf-8")
+
+    flush(base_dir=tmp_path)
+
+    content = (context_dir / "accomplishments.md").read_text(encoding="utf-8")
+    assert content == "- 2026-06-01 Old entry\n- 2026-07-29 New entry\n"
+
+
+def test_flush_nothing_staged_returns_zero(tmp_path):
+    count = flush(base_dir=tmp_path)
+
+    assert count == 0
+    assert not (tmp_path / "context" / "accomplishments.md").exists()
+    assert not (tmp_path / "context" / "archive").exists()
+
+
+def test_flush_empty_file_returns_zero(tmp_path):
+    recent_path = tmp_path / "context" / "recent_updates.md"
+    recent_path.parent.mkdir(parents=True)
+    recent_path.write_text("   \n", encoding="utf-8")
+
+    count = flush(base_dir=tmp_path)
+
+    assert count == 0
