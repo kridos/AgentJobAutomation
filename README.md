@@ -5,7 +5,7 @@ Scrapes SimplifyJobs → cross-references Gmail → researches companies → gen
 ## Setup
 
 ```bash
-pip install -r requirements.txt
+pip install -e ".[dev]"
 playwright install chromium
 ```
 
@@ -32,16 +32,29 @@ Drop your three context files into `/context/` before running:
 
 ```bash
 # Run once
-python run.py
+automator run
 
 # Dry run — scrape and filter only, no generation
-python run.py --dry-run
+automator run --dry-run
+
+# Stop after N listings (replaces the old controlled_batch_run.py / larger_batch_run.py scripts)
+automator run --limit 5
 
 # Run on a 24h schedule
-python run.py --schedule
+automator run --schedule
 
 # Custom schedule interval
-python run.py --schedule --interval-hours 12
+automator run --schedule --interval-hours 12
+
+# Manually enter a single job listing
+automator manual
+
+# Archive processed.json (clears it by default)
+automator archive
+automator archive --keep   # archive without clearing
+
+# GUI (not yet implemented)
+automator gui
 ```
 
 ## Output
@@ -58,10 +71,10 @@ And `output/YYYY-MM-DD/summary.md` — counts and status for every listing.
 ## Testing Individual Modules
 
 ```bash
-python scraper.py                               # test scraping
-python gmail_reader.py "Google"                 # test Gmail MCP
-python generator.py                             # test Ollama generation
-python researcher.py "Stripe" "SWE Intern"     # test web research
+automator test scraper                    # test scraping
+automator test gmail Google                # test Gmail MCP
+automator test generator                   # test Ollama generation
+automator test researcher Stripe "SWE Intern"  # test web research
 ```
 
 ## Configuration
