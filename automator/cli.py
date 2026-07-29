@@ -1,6 +1,7 @@
 """Argparse-based dispatcher for the automator CLI."""
 
 import argparse
+import runpy
 import sys
 
 
@@ -59,6 +60,24 @@ def _cmd_archive(args: argparse.Namespace) -> None:
     archive(clear=args.clear)
 
 
+_TEST_MODULES = {
+    "scraper": "scraper",
+    "gmail": "gmail_reader",
+    "generator": "generator",
+    "researcher": "researcher",
+}
+
+
+def _cmd_test(args: argparse.Namespace) -> None:
+    module_name = _TEST_MODULES[args.module]
+    old_argv = sys.argv
+    sys.argv = [module_name] + args.module_args
+    try:
+        runpy.run_module(module_name, run_name="__main__")
+    finally:
+        sys.argv = old_argv
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="automator", description="Internship automation pipeline")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -79,6 +98,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Archive without clearing processed.json (default: clear)",
     )
     archive_p.set_defaults(func=_cmd_archive)
+
+    test_p = subparsers.add_parser("test", help="Run a module's self-test")
+    test_p.add_argument("module", choices=sorted(_TEST_MODULES))
+    test_p.add_argument("module_args", nargs="*", help="Extra args passed to the module's self-test")
+    test_p.set_defaults(func=_cmd_test)
 
     return parser
 
