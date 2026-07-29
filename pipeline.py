@@ -355,7 +355,7 @@ def _process_listing(
     _save_processed(processed_path, processed)
 
 
-def run_pipeline(dry_run: bool = False) -> dict:
+def run_pipeline(dry_run: bool = False, limit: int | None = None) -> dict:
     config = _load_config()
 
     ollama_cfg   = config.get("ollama", {})
@@ -384,6 +384,9 @@ def run_pipeline(dry_run: bool = False) -> dict:
         "errors": [],
         "listings": [],
     }
+
+    def _limit_hit() -> bool:
+        return limit is not None and stats["processed"] >= limit
 
     processed        = _load_processed(processed_path)
     archive_ids      = _load_archive_ids()
@@ -442,18 +445,23 @@ def run_pipeline(dry_run: bool = False) -> dict:
             source="simplify",
             **common_args,
         )
+        if _limit_hit():
+            break
 
     # ── Source 1B: SimplifyJobs New-Grad-Positions ─────────────────────────────
-    print("[pipeline] Scraping SimplifyJobs New-Grad-Positions...", flush=True)
-    try:
-        newgrad_listings = scrape_newgrad(branch)
-        stats["found"] += len(newgrad_listings)
-        print(f"[pipeline] Found {len(newgrad_listings)} new grad listings", flush=True)
-    except Exception as e:
-        msg = f"New-Grad scraper failed: {e}"
-        print(f"[pipeline] ERROR: {msg}", file=sys.stderr)
-        stats["errors"].append(msg)
+    if _limit_hit():
         newgrad_listings = []
+    else:
+        print("[pipeline] Scraping SimplifyJobs New-Grad-Positions...", flush=True)
+        try:
+            newgrad_listings = scrape_newgrad(branch)
+            stats["found"] += len(newgrad_listings)
+            print(f"[pipeline] Found {len(newgrad_listings)} new grad listings", flush=True)
+        except Exception as e:
+            msg = f"New-Grad scraper failed: {e}"
+            print(f"[pipeline] ERROR: {msg}", file=sys.stderr)
+            stats["errors"].append(msg)
+            newgrad_listings = []
 
     for listing in newgrad_listings:
         if listing.id in processed:
@@ -475,10 +483,12 @@ def run_pipeline(dry_run: bool = False) -> dict:
             source="simplify",
             **common_args,
         )
+        if _limit_hit():
+            break
 
     # ── Source 2: crawl4ai job boards ────────────────────────────────────────
     crawl4ai_enabled = config.get("crawl4ai", {}).get("enabled", False)
-    if crawl4ai_enabled:
+    if crawl4ai_enabled and not _limit_hit():
         print("\n[pipeline] Scraping additional job boards (crawl4ai)...", flush=True)
         try:
             from crawl4ai_scraper import scrape_async_wrapper
@@ -492,7 +502,7 @@ def run_pipeline(dry_run: bool = False) -> dict:
         except Exception as e:
             print(f"[pipeline] crawl4ai scrape failed (non-fatal): {e}", file=sys.stderr)
             crawl4ai_listings = []
-        
+
         for listing in crawl4ai_listings:
             if listing.id in processed:
                 stats["skipped_duplicate"] += 1
@@ -513,21 +523,26 @@ def run_pipeline(dry_run: bool = False) -> dict:
                 source="crawl4ai",
                 **common_args,
             )
+            if _limit_hit():
+                break
 
     # ── Source 3: Gmail recruiter emails ─────────────────────────────────────
-    print("\n[pipeline] Scanning Gmail for recruiter listings...", flush=True)
-    from gmail_reader import get_recruiter_listings
-    try:
-        gmail_listings = get_recruiter_listings(
-            max_results=gmail_cfg.get("recruiter_scan_limit", 30),
-            mcp_url=gmail_cfg.get("mcp_url", "https://gmailmcp.googleapis.com/mcp/v1"),
-            tool_name=gmail_cfg.get("tool_name", ""),
-        )
-        stats["found"] += len(gmail_listings)
-        print(f"[pipeline] Found {len(gmail_listings)} Gmail recruiter listing(s)", flush=True)
-    except Exception as e:
-        print(f"[pipeline] Gmail scan failed (non-fatal): {e}", file=sys.stderr)
+    if _limit_hit():
         gmail_listings = []
+    else:
+        print("\n[pipeline] Scanning Gmail for recruiter listings...", flush=True)
+        from gmail_reader import get_recruiter_listings
+        try:
+            gmail_listings = get_recruiter_listings(
+                max_results=gmail_cfg.get("recruiter_scan_limit", 30),
+                mcp_url=gmail_cfg.get("mcp_url", "https://gmailmcp.googleapis.com/mcp/v1"),
+                tool_name=gmail_cfg.get("tool_name", ""),
+            )
+            stats["found"] += len(gmail_listings)
+            print(f"[pipeline] Found {len(gmail_listings)} Gmail recruiter listing(s)", flush=True)
+        except Exception as e:
+            print(f"[pipeline] Gmail scan failed (non-fatal): {e}", file=sys.stderr)
+            gmail_listings = []
 
     for gl in gmail_listings:
         if gl.id in processed:
@@ -557,6 +572,8 @@ def run_pipeline(dry_run: bool = False) -> dict:
             prefetched_job_description=gl.body,
             **common_args,
         )
+        if _limit_hit():
+            break
 
     # ── Final save + summary ──────────────────────────────────────────────────
     if not dry_run:
