@@ -78,6 +78,10 @@ def _cmd_test(args: argparse.Namespace) -> None:
         sys.argv = old_argv
 
 
+def _cmd_gui(args: argparse.Namespace) -> None:
+    print("GUI not built yet — coming in a later update")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="automator", description="Internship automation pipeline")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -103,6 +107,9 @@ def build_parser() -> argparse.ArgumentParser:
     test_p.add_argument("module", choices=sorted(_TEST_MODULES))
     test_p.add_argument("module_args", nargs="*", help="Extra args passed to the module's self-test")
     test_p.set_defaults(func=_cmd_test)
+
+    gui_p = subparsers.add_parser("gui", help="Launch the GUI (not yet implemented)")
+    gui_p.set_defaults(func=_cmd_gui)
 
     return parser
 
