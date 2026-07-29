@@ -47,6 +47,18 @@ def _cmd_run_scheduled(args: argparse.Namespace) -> None:
         print("\nScheduler stopped.")
 
 
+def _cmd_manual(args: argparse.Namespace) -> None:
+    from manual_run import run_manual
+
+    run_manual()
+
+
+def _cmd_archive(args: argparse.Namespace) -> None:
+    from archive_processed import archive
+
+    archive(clear=args.clear)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="automator", description="Internship automation pipeline")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -57,6 +69,16 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--interval-hours", type=int, default=24, help="Schedule interval in hours (default: 24)")
     run_p.add_argument("--limit", type=int, default=None, help="Stop after processing N listings")
     run_p.set_defaults(func=_cmd_run)
+
+    manual_p = subparsers.add_parser("manual", help="Manually enter a single job listing")
+    manual_p.set_defaults(func=_cmd_manual)
+
+    archive_p = subparsers.add_parser("archive", help="Archive processed.json")
+    archive_p.add_argument(
+        "--keep", dest="clear", action="store_false", default=True,
+        help="Archive without clearing processed.json (default: clear)",
+    )
+    archive_p.set_defaults(func=_cmd_archive)
 
     return parser
 
