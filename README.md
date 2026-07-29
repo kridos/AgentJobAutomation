@@ -5,7 +5,8 @@ Scrapes SimplifyJobs → cross-references Gmail → researches companies → gen
 ## Setup
 
 ```bash
-pip install -e ".[dev]"
+# dev extra is only needed to run the test suite; research extra pulls in browser-use/playwright
+pip install -e ".[dev,research]"
 playwright install chromium
 ```
 
@@ -72,7 +73,7 @@ And `output/YYYY-MM-DD/summary.md` — counts and status for every listing.
 
 ```bash
 automator test scraper                    # test scraping
-automator test gmail Google                # test Gmail MCP
+automator test gmail company Google        # test Gmail MCP
 automator test generator                   # test Ollama generation
 automator test researcher Stripe "SWE Intern"  # test web research
 ```

@@ -426,6 +426,8 @@ def run_pipeline(dry_run: bool = False, limit: int | None = None) -> dict:
         listings = []
 
     for listing in listings:
+        if _limit_hit():
+            break
         if listing.id in processed:
             stats["skipped_duplicate"] += 1
             continue
@@ -445,8 +447,6 @@ def run_pipeline(dry_run: bool = False, limit: int | None = None) -> dict:
             source="simplify",
             **common_args,
         )
-        if _limit_hit():
-            break
 
     # ── Source 1B: SimplifyJobs New-Grad-Positions ─────────────────────────────
     if _limit_hit():
@@ -464,6 +464,8 @@ def run_pipeline(dry_run: bool = False, limit: int | None = None) -> dict:
             newgrad_listings = []
 
     for listing in newgrad_listings:
+        if _limit_hit():
+            break
         if listing.id in processed:
             stats["skipped_duplicate"] += 1
             continue
@@ -483,8 +485,6 @@ def run_pipeline(dry_run: bool = False, limit: int | None = None) -> dict:
             source="simplify",
             **common_args,
         )
-        if _limit_hit():
-            break
 
     # ── Source 2: crawl4ai job boards ────────────────────────────────────────
     crawl4ai_enabled = config.get("crawl4ai", {}).get("enabled", False)
@@ -504,6 +504,8 @@ def run_pipeline(dry_run: bool = False, limit: int | None = None) -> dict:
             crawl4ai_listings = []
 
         for listing in crawl4ai_listings:
+            if _limit_hit():
+                break
             if listing.id in processed:
                 stats["skipped_duplicate"] += 1
                 continue
@@ -523,8 +525,6 @@ def run_pipeline(dry_run: bool = False, limit: int | None = None) -> dict:
                 source="crawl4ai",
                 **common_args,
             )
-            if _limit_hit():
-                break
 
     # ── Source 3: Gmail recruiter emails ─────────────────────────────────────
     if _limit_hit():
@@ -545,6 +545,8 @@ def run_pipeline(dry_run: bool = False, limit: int | None = None) -> dict:
             gmail_listings = []
 
     for gl in gmail_listings:
+        if _limit_hit():
+            break
         if gl.id in processed:
             stats["skipped_duplicate"] += 1
             continue
@@ -572,8 +574,6 @@ def run_pipeline(dry_run: bool = False, limit: int | None = None) -> dict:
             prefetched_job_description=gl.body,
             **common_args,
         )
-        if _limit_hit():
-            break
 
     # ── Final save + summary ──────────────────────────────────────────────────
     if not dry_run:

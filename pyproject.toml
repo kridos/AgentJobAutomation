@@ -11,9 +11,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
+research = ["browser-use>=0.1.0", "playwright>=1.40.0"]
 
 [project.scripts]
 automator = "automator.cli:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
 
 [tool.setuptools]
 py-modules = [

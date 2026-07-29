@@ -5,14 +5,7 @@ import runpy
 import sys
 
 
-def _cmd_run(args: argparse.Namespace) -> None:
-    from pipeline import run_pipeline
-
-    if args.schedule:
-        _cmd_run_scheduled(args)
-        return
-
-    stats = run_pipeline(dry_run=args.dry_run, limit=args.limit)
+def _print_run_summary(stats: dict) -> None:
     print(
         f"\nDone. Processed: {stats['processed']} | Skipped: {stats['skipped_duplicate']} duplicates, "
         f"{stats['skipped_filter']} filtered | Errors: {len(stats['errors'])}"
@@ -20,6 +13,17 @@ def _cmd_run(args: argparse.Namespace) -> None:
     if stats["errors"]:
         for e in stats["errors"]:
             print(f"  ERROR: {e}", file=sys.stderr)
+
+
+def _cmd_run(args: argparse.Namespace) -> None:
+    if args.schedule:
+        _cmd_run_scheduled(args)
+        return
+
+    from pipeline import run_pipeline
+
+    stats = run_pipeline(dry_run=args.dry_run, limit=args.limit)
+    _print_run_summary(stats)
 
 
 def _cmd_run_scheduled(args: argparse.Namespace) -> None:
@@ -31,15 +35,18 @@ def _cmd_run_scheduled(args: argparse.Namespace) -> None:
 
     from pipeline import run_pipeline
 
+    def _run_and_report() -> None:
+        stats = run_pipeline(dry_run=args.dry_run, limit=args.limit)
+        _print_run_summary(stats)
+
     print(f"Starting scheduler — running pipeline every {args.interval_hours}h. Press Ctrl+C to stop.\n")
-    run_pipeline(dry_run=args.dry_run, limit=args.limit)
+    _run_and_report()
 
     scheduler = BlockingScheduler()
     scheduler.add_job(
-        run_pipeline,
+        _run_and_report,
         "interval",
         hours=args.interval_hours,
-        kwargs={"dry_run": args.dry_run, "limit": args.limit},
         id="pipeline",
     )
     try:
