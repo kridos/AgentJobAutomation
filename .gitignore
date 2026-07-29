@@ -1,4 +1,6 @@
 *.md
+!README.md
+!docs/**/*.md
 output/
 __pycache__/
 *.pyc
