@@ -7,6 +7,7 @@ ollama:
 validation:
   mode: "balanced"        # warn-only | balanced
   retry_count: 1           # balanced mode uses one corrective retry
+  semantic_check: true    # LLM-based check for fabrications the regex checks can't enumerate
 
 scraper:
   repo: ""  # leave empty to auto-detect: tries 2027 first, falls back to 2026

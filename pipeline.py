@@ -217,7 +217,12 @@ def _process_listing(
             max_tokens=ollama_cfg.get("max_tokens", 4096),
         )
 
-        first_validation = validate_outputs(resume_md, cover_md, listing_dict)
+        first_validation = validate_outputs(
+            resume_md, cover_md, listing_dict,
+            model=ollama_cfg.get("model", "qwen3:14b"),
+            base_url=ollama_cfg.get("base_url", "http://localhost:11434"),
+            semantic_check=config.get("validation", {}).get("semantic_check", True),
+        )
         if first_validation.get("passed", False):
             validation_meta.update(first_validation)
         else:
@@ -236,7 +241,12 @@ def _process_listing(
                 temperature=retry_temperature,
                 max_tokens=ollama_cfg.get("max_tokens", 4096),
             )
-            second_validation = validate_outputs(resume_md, cover_md, listing_dict)
+            second_validation = validate_outputs(
+                resume_md, cover_md, listing_dict,
+                model=ollama_cfg.get("model", "qwen3:14b"),
+                base_url=ollama_cfg.get("base_url", "http://localhost:11434"),
+                semantic_check=config.get("validation", {}).get("semantic_check", True),
+            )
             validation_meta.update(second_validation)
             validation_meta["retry_used"] = True
 
@@ -298,7 +308,12 @@ def _process_listing(
                 temperature=min(float(ollama_cfg.get("temperature", 0.3)), 0.25),
                 max_tokens=ollama_cfg.get("max_tokens", 4096),
             )
-            rewrite_validation = validate_outputs(resume_md2, cover_md2, listing_dict)
+            rewrite_validation = validate_outputs(
+                resume_md2, cover_md2, listing_dict,
+                model=ollama_cfg.get("model", "qwen3:14b"),
+                base_url=ollama_cfg.get("base_url", "http://localhost:11434"),
+                semantic_check=config.get("validation", {}).get("semantic_check", True),
+            )
             if rewrite_validation.get("passed", False):
                 resume_md, cover_md = resume_md2, cover_md2
                 score_meta = score_application(

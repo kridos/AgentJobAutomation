@@ -4,8 +4,12 @@ Balanced policy support: validate output, retry once with corrective guidance,
 then block saving if unresolved.
 """
 
+import json
 import re
+import sys
 from pathlib import Path
+
+from generator import _call_ollama, DEFAULT_MODEL, OLLAMA_BASE_URL
 
 
 CONTEXT_DIR = Path(__file__).parent / "context"
@@ -272,7 +276,57 @@ def _check_metric_claims(resume_md: str, allowed_metrics: set[str], cover_md: st
     return violations
 
 
-def validate_outputs(resume_md: str, cover_md: str, listing: dict) -> dict:
+def _check_semantic_claims(
+    resume_md: str,
+    cover_md: str,
+    resume_master: str,
+    model: str,
+    base_url: str,
+) -> list[dict]:
+    """Ask the local model to flag any claim in resume_md/cover_md not traceable
+    to resume_master. Fails open (returns []) on any error — Ollama unreachable,
+    malformed JSON response, etc. — since a broken verifier must never block
+    every application; the regex checks still gate as they do today."""
+    prompt = (
+        "You are a strict fact-checker. Compare the CANDIDATE OUTPUT below against "
+        "the CANONICAL FACTS. List every factual claim in the CANDIDATE OUTPUT about "
+        "the candidate's experience, skills, accomplishments, or responsibilities that "
+        "is NOT explicitly supported by the CANONICAL FACTS.\n\n"
+        f"## CANONICAL FACTS\n{resume_master}\n\n"
+        f"## CANDIDATE OUTPUT\n{resume_md}\n\n{cover_md}\n\n"
+        "Respond with ONLY a JSON array, no other text. Each element: "
+        '{"claim": "<the unsupported claim, verbatim>", "reason": "<why it is unsupported>"}. '
+        "If every claim is supported, respond with exactly: []"
+    )
+    try:
+        raw = _call_ollama(prompt, model=model, base_url=base_url, temperature=0.1).strip()
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw)
+        items = json.loads(raw)
+        if not isinstance(items, list):
+            return []
+        violations = []
+        for item in items:
+            if not isinstance(item, dict) or "claim" not in item:
+                continue
+            violations.append({
+                "category": "semantic_unsupported",
+                "claim": item["claim"],
+                "reason": item.get("reason", "Claim not supported by canonical resume context"),
+            })
+        return violations
+    except Exception as e:
+        print(f"[factual_validator] Semantic check failed (non-fatal): {e}", file=sys.stderr)
+        return []
+
+
+def validate_outputs(
+    resume_md: str,
+    cover_md: str,
+    listing: dict,
+    model: str = DEFAULT_MODEL,
+    base_url: str = OLLAMA_BASE_URL,
+    semantic_check: bool = True,
+) -> dict:
     """
     Validate generated output against canonical facts in context/resume_master.md.
     Returns a dict with pass/fail and normalized violation details.
@@ -307,6 +361,9 @@ def validate_outputs(resume_md: str, cover_md: str, listing: dict) -> dict:
     violations.extend(_check_project_headings(resume_md, allowed_projects))
     violations.extend(_check_unsupported_tech_mentions(resume_md, allowed_techs))
     violations.extend(_check_metric_claims(resume_md, allowed_metrics, cover_md))
+
+    if semantic_check:
+        violations.extend(_check_semantic_claims(resume_md, cover_md, resume_master, model, base_url))
 
     categories = sorted({v["category"] for v in violations})
     return {
