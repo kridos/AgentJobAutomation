@@ -105,6 +105,11 @@ def _slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
 
+def _normalize_company(name: str) -> str:
+    """Lowercase, collapse whitespace — for same-run duplicate-company detection."""
+    return re.sub(r"\s+", " ", name.strip().lower())
+
+
 def _process_listing(
     *,
     listing_id: str,
@@ -509,6 +514,50 @@ def run_pipeline(dry_run: bool = False, limit: int | None = None) -> dict:
             date_posted=listing.date_posted,
             listing_dict=asdict(listing),
             source="simplify",
+            **common_args,
+        )
+
+    # ── Source 1C: vanshb03 Summer Internships ─────────────────────────────
+    if _limit_hit():
+        vansh_listings = []
+    else:
+        print("[pipeline] Scraping vanshb03 Summer Internships...", flush=True)
+        try:
+            from scraper import scrape_vanshb03
+            vansh_listings = scrape_vanshb03(branch)
+            stats["found"] += len(vansh_listings)
+            print(f"[pipeline] Found {len(vansh_listings)} vanshb03 listings", flush=True)
+        except Exception as e:
+            msg = f"vanshb03 scraper failed: {e}"
+            print(f"[pipeline] ERROR: {msg}", file=sys.stderr)
+            stats["errors"].append(msg)
+            vansh_listings = []
+
+    simplify_companies_seen = {_normalize_company(l.company) for l in listings + newgrad_listings}
+
+    for listing in vansh_listings:
+        if _limit_hit():
+            break
+        if listing.id in processed:
+            stats["skipped_duplicate"] += 1
+            continue
+        if _normalize_company(listing.company) in simplify_companies_seen:
+            stats["skipped_duplicate"] += 1
+            continue
+        passes, reason = _filter_listing(listing.role, listing.company, preferences_text)
+        if not passes:
+            print(f"[pipeline] Skipping {listing.company} — {reason}")
+            stats["skipped_filter"] += 1
+            continue
+        _process_listing(
+            listing_id=listing.id,
+            company=listing.company,
+            role=listing.role,
+            location=listing.location,
+            link=listing.link,
+            date_posted=listing.date_posted,
+            listing_dict=asdict(listing),
+            source="vanshb03",
             **common_args,
         )
 
