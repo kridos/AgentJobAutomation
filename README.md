@@ -66,6 +66,9 @@ automator outreach run
 automator outreach list
 
 # Discover new startup contacts from YC's directory (guesses + SMTP-verifies emails)
+# Note: verification needs outbound port 25 (SMTP), which most residential ISPs and
+# cloud providers block by default. If blocked, all contacts come back unconfirmed
+# and need `automator outreach confirm`.
 automator outreach discover
 
 # Manually confirm/override a discovered contact's email

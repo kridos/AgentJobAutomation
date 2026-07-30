@@ -208,29 +208,34 @@ def discover_contacts() -> dict:
         stats["found"] += len(found)
 
         for entry in found:
-            company = entry.get("company", "")
-            website = entry.get("website", "")
-            if not company or not website:
+            try:
+                company = entry.get("company", "")
+                website = entry.get("website", "")
+                if not company or not website:
+                    continue
+
+                if _normalize_company(company) in existing_companies:
+                    stats["skipped_duplicate"] += 1
+                    continue
+
+                domain = re.sub(r"^https?://(www\.)?", "", website).rstrip("/").split("/")[0]
+                print(f"[outreach] Checking {company}...", flush=True)
+                email, confirmed = guess_and_verify_email(domain)
+
+                contact_id = f"{_slugify(company)}-{source_name}"
+                contacts.append({
+                    "id": contact_id,
+                    "company": company,
+                    "contact_name": "",
+                    "contact_email": email,
+                    "notes": f"Discovered via {source_name}",
+                    "confirmed": confirmed,
+                })
+                existing_companies.add(_normalize_company(company))
+                stats["added"] += 1
+            except Exception as e:
+                print(f"[outreach] Skipping malformed entry from '{source_name}' ({repr(entry)[:100]}): {e}", file=sys.stderr)
                 continue
-
-            if _normalize_company(company) in existing_companies:
-                stats["skipped_duplicate"] += 1
-                continue
-
-            domain = re.sub(r"^https?://(www\.)?", "", website).rstrip("/").split("/")[0]
-            email, confirmed = guess_and_verify_email(domain)
-
-            contact_id = f"{_slugify(company)}-{source_name}"
-            contacts.append({
-                "id": contact_id,
-                "company": company,
-                "contact_name": "",
-                "contact_email": email,
-                "notes": f"Discovered via {source_name}",
-                "confirmed": confirmed,
-            })
-            existing_companies.add(_normalize_company(company))
-            stats["added"] += 1
 
     _save_contacts(contacts)
     return stats

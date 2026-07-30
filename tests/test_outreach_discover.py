@@ -66,6 +66,36 @@ def test_discover_contacts_adds_new_company_with_unverified_email(monkeypatch):
     assert saved[-1][0]["confirmed"] is False
 
 
+def test_discover_contacts_survives_bad_entry_and_saves_good_ones(monkeypatch):
+    monkeypatch.setattr(outreach, "_load_config", lambda: {})
+    monkeypatch.setattr(outreach, "_load_contacts", lambda: [])
+    monkeypatch.setattr(
+        outreach, "_DISCOVERY_SOURCES",
+        [("yc", lambda batches_back, limit: [
+            {"company": "Bad Co", "website": "bad.com"},
+            {"company": "Good Co", "website": "good.com"},
+        ])],
+    )
+
+    def fake_guess_and_verify(domain):
+        if domain == "bad.com":
+            raise RuntimeError("SMTP blew up")
+        return ("hello@good.com", True)
+
+    monkeypatch.setattr(outreach, "guess_and_verify_email", fake_guess_and_verify)
+
+    saved = []
+    monkeypatch.setattr(outreach, "_save_contacts", lambda contacts: saved.append(contacts))
+
+    stats = outreach.discover_contacts()
+
+    assert stats["added"] == 1
+    assert saved  # _save_contacts was still called
+    companies = [c["company"] for c in saved[-1]]
+    assert "Good Co" in companies
+    assert "Bad Co" not in companies
+
+
 def test_run_outreach_skips_unconfirmed_contact(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     contact = _fake_contact(confirmed=False)
