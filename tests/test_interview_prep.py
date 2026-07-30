@@ -75,6 +75,24 @@ def test_generate_interview_prep_blocks_on_repeated_validation_failure(tmp_path,
     assert not (app_dir / "interview_prep.md").exists()
 
 
+def test_generate_interview_prep_returns_generation_failed_on_ollama_exception(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    app_dir = _write_application("2026-07-01", "simplify", "acme_corp", "swe_intern")
+    monkeypatch.setattr(interview_prep, "_find_application", lambda company, role_hint="": app_dir)
+    monkeypatch.setattr(interview_prep, "research", lambda *a, **k: "")
+    monkeypatch.setattr(interview_prep, "_load_context_files", lambda: {"resume_master": "", "voice": "", "preferences": "", "accomplishments": "", "recent_updates": ""})
+
+    def _raise(*a, **k):
+        raise RuntimeError("Ollama not running")
+
+    monkeypatch.setattr(interview_prep, "_call_ollama", _raise)
+
+    result = interview_prep.generate_interview_prep("Acme Corp")
+
+    assert result == {"status": "generation_failed", "path": None}
+    assert not (app_dir / "interview_prep.md").exists()
+
+
 def test_generate_interview_prep_writes_all_sections_on_success(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     app_dir = _write_application("2026-07-01", "simplify", "acme_corp", "swe_intern", job_description="graphs and dynamic programming")

@@ -119,7 +119,7 @@ def _build_prep_prompt(
 def generate_interview_prep(company: str, role_hint: str = "") -> dict:
     """Orchestrates: find the application, research the company, generate
     + validate questions/talking-points, match technical problems, save
-    interview_prep.md. Returns {"status": "ok"|"not_found"|"validation_blocked",
+    interview_prep.md. Returns {"status": "ok"|"not_found"|"validation_blocked"|"generation_failed",
     "path": str|None}."""
     app_dir = _find_application(company, role_hint)
     if app_dir is None:
@@ -152,27 +152,32 @@ def generate_interview_prep(company: str, role_hint: str = "") -> dict:
 
     context = _load_context_files()
 
-    content = _call_ollama(
-        _build_prep_prompt(context, listing, job_description, research_context),
-        model=model, base_url=base_url, temperature=temperature,
-    ).strip()
-
-    validation = validate_outputs(content, content, listing, model=model, base_url=base_url, semantic_check=semantic_check)
-
-    if not validation.get("passed", False):
-        feedback = format_validation_feedback(validation)
-        retry_temp = min(float(temperature), 0.2)
-        print(f"[interview_prep] Validation failed. Retrying once...", flush=True)
+    try:
         content = _call_ollama(
-            _build_prep_prompt(context, listing, job_description, research_context, validation_feedback=feedback),
-            model=model, base_url=base_url, temperature=retry_temp,
+            _build_prep_prompt(context, listing, job_description, research_context),
+            model=model, base_url=base_url, temperature=temperature,
         ).strip()
+
         validation = validate_outputs(content, content, listing, model=model, base_url=base_url, semantic_check=semantic_check)
 
         if not validation.get("passed", False):
-            msg = f"Validation blocked: {validation.get('violation_count', 0)} unsupported claim(s)"
-            print(f"[interview_prep] ERROR: {msg}", file=sys.stderr)
-            return {"status": "validation_blocked", "path": None}
+            feedback = format_validation_feedback(validation)
+            retry_temp = min(float(temperature), 0.2)
+            print(f"[interview_prep] Validation failed. Retrying once...", flush=True)
+            content = _call_ollama(
+                _build_prep_prompt(context, listing, job_description, research_context, validation_feedback=feedback),
+                model=model, base_url=base_url, temperature=retry_temp,
+            ).strip()
+            validation = validate_outputs(content, content, listing, model=model, base_url=base_url, semantic_check=semantic_check)
+
+            if not validation.get("passed", False):
+                msg = f"Validation blocked: {validation.get('violation_count', 0)} unsupported claim(s)"
+                print(f"[interview_prep] ERROR: {msg}", file=sys.stderr)
+                return {"status": "validation_blocked", "path": None}
+    except Exception as e:
+        msg = f"Generation failed: {e}"
+        print(f"[interview_prep] ERROR: {msg}", file=sys.stderr)
+        return {"status": "generation_failed", "path": None}
 
     problems = match_problems(job_description or listing.get("role", ""))
     problems_md = "\n".join(
