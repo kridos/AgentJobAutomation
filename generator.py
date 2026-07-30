@@ -23,6 +23,10 @@ def _load_context_files() -> dict[str, str]:
         "voice": CONTEXT_DIR / "voice.md",
         "preferences": CONTEXT_DIR / "preferences.md",
     }
+    optional_files = {
+        "recent_updates": CONTEXT_DIR / "recent_updates.md",
+        "accomplishments": CONTEXT_DIR / "accomplishments.md",
+    }
     loaded = {}
     for key, path in files.items():
         if path.exists():
@@ -30,6 +34,8 @@ def _load_context_files() -> dict[str, str]:
         else:
             print(f"[generator] Warning: {path} not found", file=sys.stderr)
             loaded[key] = ""
+    for key, path in optional_files.items():
+        loaded[key] = path.read_text(encoding="utf-8") if path.exists() else ""
     return loaded
 
 
@@ -290,6 +296,12 @@ def _build_resume_prompt(
         "## My Preferences\n" + context.get("preferences", ""),
     ]
 
+    if context.get("accomplishments"):
+        parts += ["", "## Recent Accomplishments (permanent record — integrate if genuinely relevant)\n" + context["accomplishments"]]
+
+    if context.get("recent_updates"):
+        parts += ["", "## Pending Updates (not yet reviewed — integrate if genuinely relevant)\n" + context["recent_updates"]]
+
     if job_description:
         parts += ["", "## Job Posting (tailor directly to these requirements)\n" + job_description]
 
@@ -381,6 +393,12 @@ def _build_cover_letter_prompt(
         "",
         "## My Preferences\n" + context.get("preferences", ""),
     ]
+
+    if context.get("accomplishments"):
+        parts += ["", "## Recent Accomplishments (permanent record — integrate if genuinely relevant)\n" + context["accomplishments"]]
+
+    if context.get("recent_updates"):
+        parts += ["", "## Pending Updates (not yet reviewed — integrate if genuinely relevant)\n" + context["recent_updates"]]
 
     if job_description:
         parts += ["", "## Job Posting (reference specific requirements and responsibilities)\n" + job_description]
