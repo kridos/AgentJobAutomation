@@ -32,6 +32,9 @@ research:
   enabled: true
   timeout_seconds: 30
 
+accomplishments:
+  auto_flush_after_run: false  # automatically flush recent_updates.md into accomplishments.md after each successful run
+
 output:
   base_dir: "output"
   processed_file: "processed.json"

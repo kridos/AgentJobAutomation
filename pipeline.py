@@ -63,6 +63,17 @@ def _auto_archive(processed_path: Path) -> None:
         print(f"[pipeline] Auto-archive failed (non-fatal): {e}", file=sys.stderr)
 
 
+def _auto_flush(config: dict) -> None:
+    """Flush recent_updates.md into accomplishments.md at the end of a successful run, if enabled."""
+    if not config.get("accomplishments", {}).get("auto_flush_after_run", False):
+        return
+    from accomplishments import flush
+    try:
+        flush()
+    except Exception as e:
+        print(f"[pipeline] Auto-flush failed (non-fatal): {e}", file=sys.stderr)
+
+
 def _save_processed(processed_path: Path, processed: set[str]) -> None:
     with open(processed_path, "w") as f:
         json.dump(sorted(processed), f, indent=2)
@@ -579,6 +590,7 @@ def run_pipeline(dry_run: bool = False, limit: int | None = None) -> dict:
     if not dry_run:
         _save_processed(processed_path, processed)
         _auto_archive(processed_path)
+        _auto_flush(config)
 
     _write_summary(output_dir, stats)
     return stats
