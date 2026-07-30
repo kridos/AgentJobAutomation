@@ -46,14 +46,34 @@ def test_parse_markdown_table_rows_skips_header_and_separator():
     assert rows[0][0] == "Acme Corp"
 
 
-def test_scrape_vanshb03_returns_empty_list_when_repo_not_found(monkeypatch):
+def test_scrape_vanshb03_raises_when_repo_not_found(monkeypatch):
     import subprocess
+    import pytest
 
     def _fake_run(*args, **kwargs):
         raise subprocess.CalledProcessError(1, "gh")
 
     monkeypatch.setattr(subprocess, "run", _fake_run)
 
-    result = scraper.scrape_vanshb03()
+    with pytest.raises(RuntimeError):
+        scraper.scrape_vanshb03()
 
-    assert result == []
+
+LOCKED_THEN_CONTINUATION_FIXTURE = """
+| Company | Role | Location | Application/Link | Date Posted |
+| ------- | ---- | -------- | ---------------- | ----------- |
+| Jane Street | Trading Intern | NYC | <a href="https://janestreet.com/apply">Apply</a> | Jul 26 |
+| Fiserv | Software Intern 🔒 | Remote | <a href="https://fiserv.com/apply">Apply</a> | Jul 27 |
+| ↳ | Data Engineer Intern | Remote | <a href="https://fiserv.com/apply2">Apply</a> | Jul 28 |
+"""
+
+
+def test_locked_row_still_updates_last_company_for_continuation_row():
+    listings = scraper.parse_markdown_table_listings(LOCKED_THEN_CONTINUATION_FIXTURE)
+
+    roles = [l.role for l in listings]
+    assert "Software Intern 🔒" not in roles  # locked row itself is still excluded
+
+    data_engineer = [l for l in listings if l.role == "Data Engineer Intern"]
+    assert len(data_engineer) == 1
+    assert data_engineer[0].company == "Fiserv"

@@ -443,7 +443,7 @@ def run_pipeline(dry_run: bool = False, limit: int | None = None) -> dict:
 
     # ── Source 1: SimplifyJobs ────────────────────────────────────────────────
     print("[pipeline] Scraping SimplifyJobs listings...", flush=True)
-    from scraper import scrape, scrape_newgrad
+    from scraper import scrape, scrape_newgrad, scrape_vanshb03
     repo   = scraper_cfg.get("repo", "")
     branch = scraper_cfg.get("branch", "dev")
     try:
@@ -523,7 +523,6 @@ def run_pipeline(dry_run: bool = False, limit: int | None = None) -> dict:
     else:
         print("[pipeline] Scraping vanshb03 Summer Internships...", flush=True)
         try:
-            from scraper import scrape_vanshb03
             vansh_listings = scrape_vanshb03(branch)
             stats["found"] += len(vansh_listings)
             print(f"[pipeline] Found {len(vansh_listings)} vanshb03 listings", flush=True)

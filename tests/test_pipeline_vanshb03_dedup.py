@@ -39,3 +39,20 @@ def test_vanshb03_listing_processed_when_company_not_in_simplify(monkeypatch, tm
 
     vansh_companies = [l["company"] for l in stats["listings"] if l["source"] == "vanshb03"]
     assert vansh_companies == ["Beta Inc"]
+
+
+def test_vanshb03_scrape_failure_is_recorded_in_errors_not_swallowed(monkeypatch, tmp_path):
+    def _raise(branch):
+        raise RuntimeError("vanshb03 repo not found")
+
+    monkeypatch.setattr("scraper.scrape", lambda repo, branch: [])
+    monkeypatch.setattr("scraper.scrape_newgrad", lambda branch: [])
+    monkeypatch.setattr("scraper.scrape_vanshb03", _raise)
+    monkeypatch.setattr("gmail_reader.get_recruiter_listings", lambda **kwargs: [])
+    monkeypatch.chdir(tmp_path)
+
+    stats = pipeline.run_pipeline(dry_run=True)
+
+    assert any("vanshb03" in err for err in stats["errors"])
+    vansh_entries = [l for l in stats["listings"] if l["source"] == "vanshb03"]
+    assert vansh_entries == []

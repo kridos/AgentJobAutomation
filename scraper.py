@@ -67,7 +67,7 @@ def _extract_apply_link(cell: str) -> str:
 def _listing_from_cells(cells: list[str], row_raw: str, last_company: str) -> tuple["Listing | None", str]:
     """Build a Listing from one table row's cells (HTML- or markdown-pipe-sourced).
     Returns (listing_or_none, updated_last_company). Shared by both table parsers."""
-    if len(cells) < 4 or "🔒" in row_raw:
+    if len(cells) < 4:
         return None, last_company
 
     company_cell, role_cell, location_cell, link_cell = cells[0], cells[1], cells[2], cells[3]
@@ -80,6 +80,9 @@ def _listing_from_cells(cells: list[str], row_raw: str, last_company: str) -> tu
         company = last_company
     else:
         last_company = company
+
+    if "🔒" in row_raw:
+        return None, last_company
 
     role = _strip_html(role_cell)
     location = _strip_html(location_cell)
@@ -171,13 +174,9 @@ def _resolve_vanshb03_repo() -> str:
 
 def scrape_vanshb03(branch: str = "dev") -> list[Listing]:
     """Scrape vanshb03/Summer-Internships (markdown pipe-table format)."""
-    try:
-        repo = _resolve_vanshb03_repo()
-        readme = _fetch_readme_raw(repo, branch)
-        return parse_markdown_table_listings(readme)
-    except (subprocess.CalledProcessError, RuntimeError) as e:
-        print(f"[scraper] vanshb03 repo not found: {e}")
-        return []
+    repo = _resolve_vanshb03_repo()
+    readme = _fetch_readme_raw(repo, branch)
+    return parse_markdown_table_listings(readme)
 
 
 def scrape(repo: str = "", branch: str = "dev") -> list[Listing]:
