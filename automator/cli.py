@@ -67,6 +67,23 @@ def _cmd_archive(args: argparse.Namespace) -> None:
     archive(clear=args.clear)
 
 
+def _cmd_log(args: argparse.Namespace) -> None:
+    from accomplishments import log_entry
+
+    try:
+        log_entry(args.text, tags=args.tags)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    print("Logged.")
+
+
+def _cmd_flush(args: argparse.Namespace) -> None:
+    from accomplishments import flush
+
+    flush()
+
+
 _TEST_MODULES = {
     "scraper": "scraper",
     "gmail": "gmail_reader",
@@ -109,6 +126,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Archive without clearing processed.json (default: clear)",
     )
     archive_p.set_defaults(func=_cmd_archive)
+
+    log_p = subparsers.add_parser("log", help="Quick-capture a recent accomplishment")
+    log_p.add_argument("text", help="What you did, in your own words")
+    log_p.add_argument("--tags", default=None, help="Comma-separated tags, e.g. backend,ai-ml")
+    log_p.set_defaults(func=_cmd_log)
+
+    flush_p = subparsers.add_parser("flush", help="Promote staged accomplishments into the permanent record")
+    flush_p.set_defaults(func=_cmd_flush)
 
     test_p = subparsers.add_parser("test", help="Run a module's self-test")
     test_p.add_argument("module", choices=sorted(_TEST_MODULES))
