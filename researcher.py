@@ -1,80 +1,63 @@
 """
-Web research on company + role using browser-use + playwright.
+Web research on company + role: DuckDuckGo search + local Ollama summarization.
+Fully local, no paid APIs, no browser automation.
 Wrapped in try/except — failures are non-fatal.
 Run standalone: python researcher.py "Stripe" "Software Engineering Intern"
 """
 
-import asyncio
 import sys
-from typing import Optional
+
+import httpx
+
+from generator import _call_ollama
+from job_fetcher import _clean_html
+
+_MIN_RESULT_LENGTH = 100
 
 
-async def _research_async(company: str, role: str, timeout_seconds: int = 30) -> str:
-    """Use browser-use to research the company and role."""
+def _search_duckduckgo(query: str, timeout: float) -> str:
+    """Fetch DuckDuckGo's HTML-only search results for `query`, cleaned of tags.
+    Returns '' on any failure — never raises."""
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
     try:
-        from browser_use import Agent as BrowserAgent
-        from browser_use.browser.browser import Browser, BrowserConfig
-    except ImportError:
-        return ""
-
-    query = (
-        f"Research {company} for a {role} internship application. "
-        f"Find: their main tech stack, recent engineering blog posts or projects, "
-        f"company culture and values, what they look for in interns. "
-        f"Be concise — bullet points preferred."
-    )
-
-    try:
-        # Use a headless browser
-        browser = Browser(config=BrowserConfig(headless=True))
-        agent = BrowserAgent(
-            task=query,
-            llm=None,  # browser-use requires an LLM — we'll use a minimal local one
-            browser=browser,
-            max_actions_per_step=5,
+        resp = httpx.get(
+            "https://html.duckduckgo.com/html/",
+            params={"q": query},
+            headers=headers,
+            timeout=timeout,
+            follow_redirects=True,
         )
-        result = await asyncio.wait_for(agent.run(), timeout=timeout_seconds)
-        await browser.close()
-
-        if hasattr(result, "final_result"):
-            return result.final_result() or ""
-        return str(result)
-    except asyncio.TimeoutError:
-        print(f"[researcher] Timeout researching {company}", file=sys.stderr)
-        return ""
+        resp.raise_for_status()
+        return _clean_html(resp.text)
     except Exception as e:
-        print(f"[researcher] browser-use error for {company}: {e}", file=sys.stderr)
+        print(f"[researcher] DuckDuckGo search failed: {e}", file=sys.stderr)
         return ""
 
 
-async def _research_playwright_fallback(company: str, role: str) -> str:
-    """Lightweight fallback: fetch company homepage and extract text."""
+def _summarize_research(company: str, role: str, raw_text: str) -> str:
+    """Summarize raw search-result text into markdown bullets via the local
+    Ollama model. Returns '' if the Ollama call fails — never raises."""
+    prompt = (
+        f"Here are raw web search results about {company}, relevant to a "
+        f"{role} internship application:\n\n{raw_text[:3000]}\n\n"
+        f"Summarize into concise markdown bullet points covering: main tech "
+        f"stack, recent projects or engineering blog posts, company culture "
+        f"and values, and what they look for in interns. Only include what "
+        f"the search results actually support — if something isn't covered, "
+        f"leave it out rather than guessing or fabricating."
+    )
     try:
-        from playwright.async_api import async_playwright
-    except ImportError:
-        return ""
-
-    search_url = f"https://www.google.com/search?q={company}+{role.replace(' ', '+')}+internship+tech+stack+engineering"
-
-    text_chunks = []
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            await page.goto(search_url, timeout=15000)
-            await page.wait_for_load_state("domcontentloaded")
-            # Extract visible text from search results
-            content = await page.evaluate("() => document.body.innerText")
-            text_chunks.append(content[:3000])
-            await browser.close()
+        return _call_ollama(prompt).strip()
     except Exception as e:
-        print(f"[researcher] Playwright fallback error: {e}", file=sys.stderr)
-
-    if not text_chunks:
+        print(f"[researcher] Ollama summarization failed: {e}", file=sys.stderr)
         return ""
-
-    combined = "\n".join(text_chunks)
-    return f"## Web Research (search results)\n{combined[:2000]}"
 
 
 def research(company: str, role: str, timeout_seconds: int = 30) -> str:
@@ -83,19 +66,17 @@ def research(company: str, role: str, timeout_seconds: int = 30) -> str:
     Returns a markdown string, or empty string if research fails.
     Never raises — always safe to call.
     """
-    try:
-        result = asyncio.run(_research_async(company, role, timeout_seconds))
-        if result:
-            return f"## Company Research: {company}\n{result}"
-    except Exception as e:
-        print(f"[researcher] browser-use failed, trying playwright fallback: {e}", file=sys.stderr)
+    query = f"{company} {role} internship tech stack engineering culture"
+    raw_text = _search_duckduckgo(query, timeout=timeout_seconds)
 
-    try:
-        result = asyncio.run(_research_playwright_fallback(company, role))
-        return result
-    except Exception as e:
-        print(f"[researcher] All research methods failed for {company}: {e}", file=sys.stderr)
+    if len(raw_text) < _MIN_RESULT_LENGTH:
         return ""
+
+    summary = _summarize_research(company, role, raw_text)
+    if not summary:
+        return ""
+
+    return f"## Company Research: {company}\n{summary}"
 
 
 if __name__ == "__main__":
@@ -106,4 +87,4 @@ if __name__ == "__main__":
     if result:
         print(result)
     else:
-        print("No research results (browser-use/playwright may not be configured).")
+        print("No research results (DuckDuckGo search or Ollama may be unavailable).")

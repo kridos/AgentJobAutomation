@@ -5,7 +5,7 @@ Scrapes SimplifyJobs → cross-references Gmail → researches companies → gen
 ## Setup
 
 ```bash
-# dev extra is only needed to run the test suite; research extra pulls in browser-use/playwright
+# dev extra is only needed to run the test suite; research extra pulls in playwright (used as a fallback for JS-heavy job pages)
 pip install -e ".[dev,research]"
 playwright install chromium
 ```
