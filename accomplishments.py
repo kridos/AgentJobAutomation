@@ -41,6 +41,9 @@ def log_entry(text: str, tags: str | None = None, base_dir: Path = Path(".")) ->
         f.write(line)
 
 
+# ponytail: at-least-once flush — a crash between the accomplishments
+# append and clearing recent_updates.md could duplicate an entry on
+# retry. No data loss. Add read-time dedup if this ever bites.
 def flush(base_dir: Path = Path(".")) -> int:
     recent_path = _recent_updates_path(base_dir)
 
