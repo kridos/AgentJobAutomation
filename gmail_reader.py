@@ -26,6 +26,7 @@ except ImportError:
 
 GMAIL_MCP_URL = "https://gmailmcp.googleapis.com/mcp/v1"
 DEFAULT_SEARCH_TOOL = "search_threads"
+DEFAULT_DRAFT_TOOL = "create_draft"
 _TOOL_NAME_CACHE: dict[str, str] = {}
 
 # Recruiter email search query for independent sourcing
@@ -112,6 +113,41 @@ def _resolve_search_tool_name(mcp_url: str = GMAIL_MCP_URL, configured_tool: str
             return tool
 
     _TOOL_NAME_CACHE[cache_key] = configured_tool or DEFAULT_SEARCH_TOOL
+    return _TOOL_NAME_CACHE[cache_key]
+
+
+def _resolve_draft_tool_name(mcp_url: str = GMAIL_MCP_URL, configured_tool: str = "") -> str:
+    cache_key = f"draft|{mcp_url}|{configured_tool}"
+    if cache_key in _TOOL_NAME_CACHE:
+        return _TOOL_NAME_CACHE[cache_key]
+
+    candidates = [
+        configured_tool,
+        DEFAULT_DRAFT_TOOL,
+        "gmail_create_draft",
+        "gmail.create_draft",
+        "draft_email",
+        "create_email_draft",
+    ]
+    candidates = [name for name in candidates if name]
+
+    try:
+        tools = _mcp_list_tools(mcp_url)
+    except Exception:
+        _TOOL_NAME_CACHE[cache_key] = configured_tool or DEFAULT_DRAFT_TOOL
+        return _TOOL_NAME_CACHE[cache_key]
+
+    for candidate in candidates:
+        if candidate in tools:
+            _TOOL_NAME_CACHE[cache_key] = candidate
+            return candidate
+
+    for tool in tools:
+        if "draft" in tool.lower():
+            _TOOL_NAME_CACHE[cache_key] = tool
+            return tool
+
+    _TOOL_NAME_CACHE[cache_key] = configured_tool or DEFAULT_DRAFT_TOOL
     return _TOOL_NAME_CACHE[cache_key]
 
 
@@ -268,6 +304,20 @@ def get_recruiter_listings(
         ))
 
     return listings
+
+
+# ── Draft creation ────────────────────────────────────────────────────────
+
+def create_draft(to: str, subject: str, body: str, mcp_url: str = GMAIL_MCP_URL, tool_name: str = "") -> bool:
+    """Creates a Gmail draft via MCP. Never sends. Returns True on success,
+    False on any failure (caught and logged, never raises)."""
+    try:
+        resolved_tool = _resolve_draft_tool_name(mcp_url, tool_name)
+        _mcp_call(resolved_tool, {"to": to, "subject": subject, "body": body}, mcp_url=mcp_url)
+        return True
+    except Exception as e:
+        print(f"[gmail_reader] Warning: could not create draft for '{to}': {e}", file=sys.stderr)
+        return False
 
 
 if __name__ == "__main__":
