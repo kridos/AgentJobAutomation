@@ -69,7 +69,13 @@ def main():
         max_tokens=ollama_cfg.get("max_tokens", 4096),
     )
 
-    result = validate_outputs(resume_md, cover_md, asdict(listing))
+    result = validate_outputs(
+        resume_md,
+        cover_md,
+        asdict(listing),
+        model=ollama_cfg.get("model", "qwen3:14b"),
+        base_url=ollama_cfg.get("base_url", "http://localhost:11434"),
+    )
     print(f"Passed: {result['passed']}  Violations: {result['violation_count']}")
     for v in result.get("violations", []):
         print(f"  [{v['category']}] {v['claim']!r}: {v['reason']}")

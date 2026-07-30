@@ -286,7 +286,8 @@ def _check_semantic_claims(
     """Ask the local model to flag any claim in resume_md/cover_md not traceable
     to resume_master. Fails open (returns []) on any error — Ollama unreachable,
     malformed JSON response, etc. — since a broken verifier must never block
-    every application; the regex checks still gate as they do today."""
+    every application; the regex checks still gate as they do today.
+    In production resume_md is passed as "" (cover-letter-only) — see validate_outputs."""
     prompt = (
         "You are a strict fact-checker. Compare the CANDIDATE OUTPUT below against "
         "the CANONICAL FACTS. List every factual claim in the CANDIDATE OUTPUT about "
@@ -363,7 +364,9 @@ def validate_outputs(
     violations.extend(_check_metric_claims(resume_md, allowed_metrics, cover_md))
 
     if semantic_check:
-        violations.extend(_check_semantic_claims(resume_md, cover_md, resume_master, model, base_url))
+        # Cover-letter-only: resume's canonical sections are assembled verbatim and can't
+        # be changed by the corrective retry, so a semantic flag there would permanently block.
+        violations.extend(_check_semantic_claims("", cover_md, resume_master, model, base_url))
 
     categories = sorted({v["category"] for v in violations})
     return {
