@@ -23,6 +23,16 @@ def test_load_resume_master_handles_missing_optional_files(tmp_path, monkeypatch
     assert combined == "# Test Resume\n"
 
 
+def test_load_resume_master_returns_empty_when_primary_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(factual_validator, "CONTEXT_DIR", tmp_path)
+    (tmp_path / "accomplishments.md").write_text("- 2026-06-01 [tags: backend] Reduced API latency by 40%\n", encoding="utf-8")
+    (tmp_path / "recent_updates.md").write_text("- 2026-07-29 Pending thing\n", encoding="utf-8")
+
+    combined = factual_validator._load_resume_master()
+
+    assert combined == ""
+
+
 def test_metric_only_in_accomplishments_not_flagged(tmp_path, monkeypatch):
     # _extract_allowed_metrics runs a global regex over the combined text (not
     # gated to a specific section), so this is a realistic case: a percentage

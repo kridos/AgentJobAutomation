@@ -37,8 +37,12 @@ def _normalize(s: str) -> str:
 
 
 def _load_resume_master() -> str:
-    parts = []
-    for name in ("resume_master.md", "accomplishments.md", "recent_updates.md"):
+    primary_path = CONTEXT_DIR / "resume_master.md"
+    if not primary_path.exists():
+        return ""
+
+    parts = [primary_path.read_text(encoding="utf-8")]
+    for name in ("accomplishments.md", "recent_updates.md"):
         path = CONTEXT_DIR / name
         if path.exists():
             parts.append(path.read_text(encoding="utf-8"))

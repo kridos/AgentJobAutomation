@@ -22,8 +22,8 @@ def _archive_dir(base_dir: Path) -> Path:
     return base_dir / "context" / "archive"
 
 
-def log_entry(text: str, tags: str | None = None, base_dir: Path = Path(".")) -> None:
-    text = text.strip()
+def log_entry(text: str, tags: str | None = None, base_dir: Path = Path(__file__).parent) -> None:
+    text = text.strip().replace("\n", " ")
     if not text:
         raise ValueError("log entry text must not be empty")
 
@@ -44,7 +44,7 @@ def log_entry(text: str, tags: str | None = None, base_dir: Path = Path(".")) ->
 # ponytail: at-least-once flush — a crash between the accomplishments
 # append and clearing recent_updates.md could duplicate an entry on
 # retry. No data loss. Add read-time dedup if this ever bites.
-def flush(base_dir: Path = Path(".")) -> int:
+def flush(base_dir: Path = Path(__file__).parent) -> int:
     recent_path = _recent_updates_path(base_dir)
 
     if not recent_path.exists():

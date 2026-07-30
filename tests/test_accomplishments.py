@@ -30,6 +30,14 @@ def test_log_entry_appends_to_existing_file(tmp_path, monkeypatch):
     assert content == "- 2026-07-29 First entry\n- 2026-07-29 Second entry\n"
 
 
+def test_log_entry_sanitizes_newlines(tmp_path, monkeypatch):
+    monkeypatch.setattr("accomplishments.date", _FixedDate)
+    log_entry("line one\nline two", base_dir=tmp_path)
+
+    content = (tmp_path / "context" / "recent_updates.md").read_text(encoding="utf-8")
+    assert content == "- 2026-07-29 line one line two\n"
+
+
 def test_log_entry_rejects_empty_text(tmp_path):
     with pytest.raises(ValueError):
         log_entry("   ", base_dir=tmp_path)

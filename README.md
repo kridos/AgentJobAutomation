@@ -23,11 +23,17 @@ gh auth login
 
 ## Context Files
 
-Drop your three context files into `/context/` before running:
+Drop your context files into `/context/` before running:
 
 - `resume_master.md` — all experience and projects, with `[tags]` for filtering
 - `voice.md` — cover letter tone rules and what to avoid
 - `preferences.md` — target roles, locations, filters
+
+Two more are optional and created on first use — they let you quick-capture recent
+accomplishments so generation stays up to date without editing `resume_master.md`:
+
+- `recent_updates.md` — staging area for entries logged via `automator log`
+- `accomplishments.md` — permanent record of accomplishments promoted via `automator flush`
 
 ## Usage
 
@@ -49,6 +55,12 @@ automator run --schedule --interval-hours 12
 
 # Manually enter a single job listing
 automator manual
+
+# Quick-capture a recent accomplishment
+automator log "Shipped RGB-D fusion milestone" --tags robotics,ai-ml
+
+# Promote staged accomplishments into the permanent record
+automator flush
 
 # Archive processed.json (clears it by default)
 automator archive

@@ -23,7 +23,7 @@ pythonpath = ["."]
 py-modules = [
     "pipeline", "generator", "researcher", "scraper", "gmail_reader",
     "job_fetcher", "factual_validator", "scorer", "archive_processed",
-    "manual_run", "crawl4ai_scraper",
+    "manual_run", "crawl4ai_scraper", "accomplishments",
 ]
 packages = ["automator"]
 
