@@ -56,6 +56,15 @@ automator run --schedule --interval-hours 12
 # Manually enter a single job listing
 automator manual
 
+# Add a cold-outreach contact
+automator outreach add
+
+# Generate + draft cold emails for pending contacts (creates Gmail drafts, never sends)
+automator outreach run
+
+# Show outreach contact status
+automator outreach list
+
 # Quick-capture a recent accomplishment
 automator log "Shipped RGB-D fusion milestone" --tags robotics,ai-ml
 

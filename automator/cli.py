@@ -84,6 +84,33 @@ def _cmd_flush(args: argparse.Namespace) -> None:
     flush()
 
 
+def _cmd_outreach_add(args: argparse.Namespace) -> None:
+    from outreach import add_contact_interactive
+
+    add_contact_interactive()
+
+
+def _cmd_outreach_run(args: argparse.Namespace) -> None:
+    from outreach import run_outreach
+
+    stats = run_outreach()
+    print(f"\nDone. Drafted: {stats['drafted']} | Skipped: {stats['skipped']} | Errors: {len(stats['errors'])}")
+    if stats["errors"]:
+        for e in stats["errors"]:
+            print(f"  ERROR: {e}", file=sys.stderr)
+
+
+def _cmd_outreach_list(args: argparse.Namespace) -> None:
+    from outreach import list_outreach_status
+
+    statuses = list_outreach_status()
+    if not statuses:
+        print("No outreach contacts yet. Add one with: automator outreach add")
+        return
+    for s in statuses:
+        print(f"[{s['status']:8}] {s['company']} — {s['contact_email']}")
+
+
 _TEST_MODULES = {
     "scraper": "scraper",
     "gmail": "gmail_reader",
@@ -134,6 +161,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     flush_p = subparsers.add_parser("flush", help="Promote staged accomplishments into the permanent record")
     flush_p.set_defaults(func=_cmd_flush)
+
+    outreach_p = subparsers.add_parser("outreach", help="Cold-email outreach")
+    outreach_sub = outreach_p.add_subparsers(dest="outreach_command", required=True)
+
+    outreach_add_p = outreach_sub.add_parser("add", help="Manually add an outreach contact")
+    outreach_add_p.set_defaults(func=_cmd_outreach_add)
+
+    outreach_run_p = outreach_sub.add_parser("run", help="Generate and draft emails for pending contacts")
+    outreach_run_p.set_defaults(func=_cmd_outreach_run)
+
+    outreach_list_p = outreach_sub.add_parser("list", help="Show outreach contact status")
+    outreach_list_p.set_defaults(func=_cmd_outreach_list)
 
     test_p = subparsers.add_parser("test", help="Run a module's self-test")
     test_p.add_argument("module", choices=sorted(_TEST_MODULES))
