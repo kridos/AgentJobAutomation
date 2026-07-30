@@ -36,6 +36,11 @@ research:
 accomplishments:
   auto_flush_after_run: false  # automatically flush recent_updates.md into accomplishments.md after each successful run
 
+outreach:
+  discover:
+    batches_back: 2   # scrape current YC batch + this many prior batches
+    limit: 50          # cap new companies added per discover run
+
 output:
   base_dir: "output"
   processed_file: "processed.json"

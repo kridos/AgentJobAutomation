@@ -22,12 +22,15 @@ from factual_validator import (
     _load_resume_master,
 )
 from gmail_reader import create_draft, GMAIL_MCP_URL
+from email_verify import guess_and_verify_email
+from yc_scraper import scrape_yc_directory
 
 
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 CONTEXT_DIR = Path(__file__).parent / "context"
 CONTACTS_PATH = CONTEXT_DIR / "outreach_contacts.yaml"
 PROCESSED_PATH = Path(__file__).parent / "outreach_processed.json"
+_DISCOVERY_SOURCES = [("yc", scrape_yc_directory)]  # each entry: (source_name, scraper_fn(batches_back, limit) -> list[dict])
 
 
 def _load_config() -> dict:
@@ -39,6 +42,10 @@ def _load_config() -> dict:
 
 def _slugify(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
+
+
+def _normalize_company(name: str) -> str:
+    return re.sub(r"\s+", " ", name.strip().lower())
 
 
 def _load_contacts() -> list[dict]:
@@ -102,6 +109,7 @@ def add_contact_interactive() -> None:
         "contact_name": contact_name,
         "contact_email": contact_email,
         "notes": notes,
+        "confirmed": True,
     })
     _save_contacts(contacts)
 
@@ -175,6 +183,72 @@ def _build_subject(contact: dict) -> str:
     return f"Quick question about opportunities at {company}"
 
 
+def discover_contacts() -> dict:
+    """Runs every scraper in _DISCOVERY_SOURCES, dedups against existing
+    contacts by normalized company name, guesses+verifies an email per
+    new company, and appends new entries to context/outreach_contacts.yaml.
+    Returns {"found": int, "added": int, "skipped_duplicate": int}."""
+    config = _load_config()
+    discover_cfg = config.get("outreach", {}).get("discover", {})
+    batches_back = discover_cfg.get("batches_back", 2)
+    limit = discover_cfg.get("limit", 50)
+
+    contacts = _load_contacts()
+    existing_companies = {_normalize_company(c.get("company", "")) for c in contacts}
+
+    stats = {"found": 0, "added": 0, "skipped_duplicate": 0}
+
+    for source_name, scraper_fn in _DISCOVERY_SOURCES:
+        try:
+            found = scraper_fn(batches_back=batches_back, limit=limit)
+        except Exception as e:
+            print(f"[outreach] Discovery source '{source_name}' failed: {e}", file=sys.stderr)
+            continue
+
+        stats["found"] += len(found)
+
+        for entry in found:
+            company = entry.get("company", "")
+            website = entry.get("website", "")
+            if not company or not website:
+                continue
+
+            if _normalize_company(company) in existing_companies:
+                stats["skipped_duplicate"] += 1
+                continue
+
+            domain = re.sub(r"^https?://(www\.)?", "", website).rstrip("/").split("/")[0]
+            email, confirmed = guess_and_verify_email(domain)
+
+            contact_id = f"{_slugify(company)}-{source_name}"
+            contacts.append({
+                "id": contact_id,
+                "company": company,
+                "contact_name": "",
+                "contact_email": email,
+                "notes": f"Discovered via {source_name}",
+                "confirmed": confirmed,
+            })
+            existing_companies.add(_normalize_company(company))
+            stats["added"] += 1
+
+    _save_contacts(contacts)
+    return stats
+
+
+def confirm_contact_manual(contact_id: str, email: str) -> bool:
+    """Finds the contact by id, sets contact_email=email and confirmed=True,
+    saves. Returns False if contact_id doesn't exist."""
+    contacts = _load_contacts()
+    for contact in contacts:
+        if contact.get("id", "") == contact_id:
+            contact["contact_email"] = email
+            contact["confirmed"] = True
+            _save_contacts(contacts)
+            return True
+    return False
+
+
 def _validate_email(body: str, contact: dict, model: str, base_url: str, semantic_check: bool = True) -> dict:
     """Validate the email body, supplementing validate_outputs' reused checks
     with a genuine metric check against the canonical resume (validate_outputs'
@@ -211,7 +285,7 @@ def run_outreach() -> dict:
     contacts = _load_contacts()
     processed = _load_outreach_processed()
 
-    stats = {"drafted": 0, "skipped": 0, "errors": []}
+    stats = {"drafted": 0, "skipped": 0, "unconfirmed_skipped": 0, "errors": []}
 
     for contact in contacts:
         contact_id = contact.get("id", "")
@@ -219,6 +293,10 @@ def run_outreach() -> dict:
 
         if not contact_id or contact_id in processed:
             stats["skipped"] += 1
+            continue
+
+        if not contact.get("confirmed", True):
+            stats["unconfirmed_skipped"] += 1
             continue
 
         email_addr = contact.get("contact_email", "")
@@ -271,8 +349,8 @@ def run_outreach() -> dict:
 
 
 def list_outreach_status() -> list[dict]:
-    """Returns [{"company", "contact_email", "status"}] for every contact.
-    status is 'drafted' or 'pending'."""
+    """Returns [{"company", "contact_email", "status", "confirmed"}] for
+    every contact. status is 'drafted' or 'pending'."""
     contacts = _load_contacts()
     processed = _load_outreach_processed()
     return [
@@ -280,6 +358,7 @@ def list_outreach_status() -> list[dict]:
             "company": c.get("company", ""),
             "contact_email": c.get("contact_email", ""),
             "status": "drafted" if c.get("id", "") in processed else "pending",
+            "confirmed": c.get("confirmed", True),
         }
         for c in contacts
     ]
