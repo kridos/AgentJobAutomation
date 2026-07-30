@@ -64,56 +64,78 @@ def _extract_apply_link(cell: str) -> str:
     return hrefs[0] if hrefs else ""
 
 
+def _listing_from_cells(cells: list[str], row_raw: str, last_company: str) -> tuple["Listing | None", str]:
+    """Build a Listing from one table row's cells (HTML- or markdown-pipe-sourced).
+    Returns (listing_or_none, updated_last_company). Shared by both table parsers."""
+    if len(cells) < 4 or "🔒" in row_raw:
+        return None, last_company
+
+    company_cell, role_cell, location_cell, link_cell = cells[0], cells[1], cells[2], cells[3]
+    date_cell = cells[4] if len(cells) > 4 else ""
+
+    company = _strip_html(company_cell)
+    company = re.sub(r"^[\U0001F300-\U0001FFFF\s]+", "", company).strip()
+
+    if company in ("↳", "") or not company:
+        company = last_company
+    else:
+        last_company = company
+
+    role = _strip_html(role_cell)
+    location = _strip_html(location_cell)
+    link = _extract_apply_link(link_cell)
+    date = _strip_html(date_cell)
+
+    if not company or not role:
+        return None, last_company
+
+    return Listing(company=company, role=role, location=location, link=link, date_posted=date), last_company
+
+
 def parse_listings(readme: str) -> list[Listing]:
     """Parse HTML <tr><td> rows from the SimplifyJobs README."""
     listings = []
     last_company = ""
 
-    # Extract all <tr> blocks
     rows = re.findall(r"<tr>(.*?)</tr>", readme, re.DOTALL | re.IGNORECASE)
 
     for row in rows:
-        # Extract <td> cells
         cells = re.findall(r"<td>(.*?)</td>", row, re.DOTALL | re.IGNORECASE)
-        if len(cells) < 4:
+        listing, last_company = _listing_from_cells(cells, row, last_company)
+        if listing:
+            listings.append(listing)
+
+    return listings
+
+
+def _parse_markdown_table_rows(readme: str) -> list[list[str]]:
+    """Return cell-lists for every markdown pipe-table data row, skipping the
+    header row and the '---' separator row."""
+    rows = []
+    for line in readme.splitlines():
+        line = line.strip()
+        if not (line.startswith("|") and line.endswith("|")):
             continue
-
-        company_cell = cells[0]
-        role_cell = cells[1]
-        location_cell = cells[2]
-        link_cell = cells[3]
-        date_cell = cells[4] if len(cells) > 4 else ""
-
-        # Skip closed listings (🔒 appears in the row)
-        if "🔒" in row:
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if not cells:
             continue
+        if all(re.fullmatch(r":?-{2,}:?", c) for c in cells):
+            continue  # separator row
+        if cells[0].strip().lower() == "company":
+            continue  # header row
+        rows.append(cells)
+    return rows
 
-        company = _strip_html(company_cell)
-        # Remove emoji prefixes like 🔥 🛂 🎓
-        company = re.sub(r"^[\U0001F300-\U0001FFFF\s]+", "", company).strip()
 
-        # ↳ means "same company as above"
-        if company in ("↳", "") or not company:
-            company = last_company
-        else:
-            last_company = company
-
-        role = _strip_html(role_cell)
-        location = _strip_html(location_cell)
-        link = _extract_apply_link(link_cell)
-        date = _strip_html(date_cell)
-
-        if not company or not role:
-            continue
-
-        listings.append(Listing(
-            company=company,
-            role=role,
-            location=location,
-            link=link,
-            date_posted=date,
-        ))
-
+def parse_markdown_table_listings(readme: str) -> list[Listing]:
+    """Parse markdown pipe-table rows (vanshb03's README format) into Listings."""
+    listings = []
+    last_company = ""
+    for cells in _parse_markdown_table_rows(readme):
+        row_raw = " ".join(cells)
+        listing, last_company = _listing_from_cells(cells, row_raw, last_company)
+        if listing:
+            listings.append(listing)
     return listings
 
 
@@ -130,6 +152,32 @@ def _resolve_repo() -> str:
         except subprocess.CalledProcessError:
             continue
     raise RuntimeError("Neither Summer2027 nor Summer2026 repo found on GitHub.")
+
+
+def _resolve_vanshb03_repo() -> str:
+    """Try Summer2027 first; fall back to Summer2026 if it doesn't exist yet."""
+    for repo in [
+        "vanshb03/Summer2027-Internships",
+        "vanshb03/Summer2026-Internships",
+    ]:
+        try:
+            _fetch_readme_raw(repo)
+            print(f"[scraper] Using vanshb03 repo: {repo}")
+            return repo
+        except subprocess.CalledProcessError:
+            continue
+    raise RuntimeError("Neither vanshb03 Summer2027 nor Summer2026 repo found on GitHub.")
+
+
+def scrape_vanshb03(branch: str = "dev") -> list[Listing]:
+    """Scrape vanshb03/Summer-Internships (markdown pipe-table format)."""
+    try:
+        repo = _resolve_vanshb03_repo()
+        readme = _fetch_readme_raw(repo, branch)
+        return parse_markdown_table_listings(readme)
+    except (subprocess.CalledProcessError, RuntimeError) as e:
+        print(f"[scraper] vanshb03 repo not found: {e}")
+        return []
 
 
 def scrape(repo: str = "", branch: str = "dev") -> list[Listing]:
