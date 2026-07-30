@@ -74,6 +74,11 @@ automator outreach discover
 # Manually confirm/override a discovered contact's email
 automator outreach confirm <contact-id> <email>
 
+# Generate interview prep for an application you already made (research,
+# likely questions with resume talking points, and practice problems)
+automator prep "Acme Corp"
+automator prep "Acme Corp" --role "ML Intern"   # disambiguate multiple matches
+
 # Quick-capture a recent accomplishment
 automator log "Shipped RGB-D fusion milestone" --tags robotics,ai-ml
 

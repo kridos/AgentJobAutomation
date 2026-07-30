@@ -24,7 +24,7 @@ py-modules = [
     "pipeline", "generator", "researcher", "scraper", "gmail_reader",
     "job_fetcher", "factual_validator", "scorer", "archive_processed",
     "manual_run", "crawl4ai_scraper", "accomplishments", "outreach",
-    "yc_scraper", "email_verify",
+    "yc_scraper", "email_verify", "interview_prep", "interview_problems",
 ]
 packages = ["automator"]
 

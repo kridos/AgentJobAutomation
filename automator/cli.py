@@ -154,6 +154,24 @@ def _cmd_gui(args: argparse.Namespace) -> None:
     print("GUI not built yet — coming in a later update")
 
 
+def _cmd_prep(args: argparse.Namespace) -> None:
+    from interview_prep import generate_interview_prep
+
+    result = generate_interview_prep(args.company, role_hint=args.role or "")
+
+    if result["status"] == "ok":
+        print(f"Interview prep saved to: {result['path']}")
+    elif result["status"] == "not_found":
+        print(f"No application found for '{args.company}'. Run `automator run` first, or check the company name.", file=sys.stderr)
+        sys.exit(1)
+    elif result["status"] == "validation_blocked":
+        print("Interview prep generation blocked by validation — unsupported claims could not be resolved after retry.", file=sys.stderr)
+        sys.exit(1)
+    elif result["status"] == "generation_failed":
+        print("Interview prep generation failed — check that Ollama is running.", file=sys.stderr)
+        sys.exit(1)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="automator", description="Internship automation pipeline")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -202,6 +220,11 @@ def build_parser() -> argparse.ArgumentParser:
     outreach_confirm_p.add_argument("contact_id", help="The contact's id (see `automator outreach list`)")
     outreach_confirm_p.add_argument("email", help="The email address to set and confirm")
     outreach_confirm_p.set_defaults(func=_cmd_outreach_confirm)
+
+    prep_p = subparsers.add_parser("prep", help="Generate interview prep material for an application")
+    prep_p.add_argument("company", help="Company name (matches an existing application in output/)")
+    prep_p.add_argument("--role", default="", help="Filter by role substring when multiple applications match")
+    prep_p.set_defaults(func=_cmd_prep)
 
     test_p = subparsers.add_parser("test", help="Run a module's self-test")
     test_p.add_argument("module", choices=sorted(_TEST_MODULES))
