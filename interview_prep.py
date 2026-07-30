@@ -13,7 +13,13 @@ from pathlib import Path
 import yaml
 
 from generator import _call_ollama, _load_context_files, DEFAULT_MODEL, OLLAMA_BASE_URL
-from factual_validator import validate_outputs, format_validation_feedback
+from factual_validator import (
+    validate_outputs,
+    format_validation_feedback,
+    _check_metric_claims,
+    _extract_allowed_metrics,
+    _load_resume_master,
+)
 from researcher import research
 from interview_problems import match_problems
 
@@ -116,6 +122,32 @@ def _build_prep_prompt(
     return "\n".join(parts)
 
 
+def _validate_prep_content(content: str, listing: dict, model: str, base_url: str, semantic_check: bool = True) -> dict:
+    """Validate interview-prep content. Passes '' as the resume_md argument
+    to validate_outputs so the resume-shaped checks (org headings, project
+    headings, unsupported tech, identity name) — which misfire on prep
+    content's STAR-format headings and legitimate tech discussion — become
+    harmless no-ops, while contact/GPA/degree checks and the semantic
+    verifier (both cover_md-scoped) keep working. Supplements with a
+    genuine metric check against the REAL canonical resume's metrics,
+    since validate_outputs' own metric check is a no-op when resume_md
+    is empty."""
+    validation = validate_outputs("", content, listing, model=model, base_url=base_url, semantic_check=semantic_check)
+
+    resume_master = _load_resume_master()
+    allowed_metrics = _extract_allowed_metrics(resume_master)
+    metric_violations = _check_metric_claims(content, allowed_metrics)
+
+    if metric_violations:
+        violations = validation.get("violations", []) + metric_violations
+        validation["violations"] = violations
+        validation["violation_count"] = len(violations)
+        validation["categories"] = sorted(set(validation.get("categories", [])) | {"metric_claim"})
+        validation["passed"] = False
+
+    return validation
+
+
 def generate_interview_prep(company: str, role_hint: str = "") -> dict:
     """Orchestrates: find the application, research the company, generate
     + validate questions/talking-points, match technical problems, save
@@ -158,7 +190,7 @@ def generate_interview_prep(company: str, role_hint: str = "") -> dict:
             model=model, base_url=base_url, temperature=temperature,
         ).strip()
 
-        validation = validate_outputs(content, content, listing, model=model, base_url=base_url, semantic_check=semantic_check)
+        validation = _validate_prep_content(content, listing, model, base_url, semantic_check)
 
         if not validation.get("passed", False):
             feedback = format_validation_feedback(validation)
@@ -168,7 +200,7 @@ def generate_interview_prep(company: str, role_hint: str = "") -> dict:
                 _build_prep_prompt(context, listing, job_description, research_context, validation_feedback=feedback),
                 model=model, base_url=base_url, temperature=retry_temp,
             ).strip()
-            validation = validate_outputs(content, content, listing, model=model, base_url=base_url, semantic_check=semantic_check)
+            validation = _validate_prep_content(content, listing, model, base_url, semantic_check)
 
             if not validation.get("passed", False):
                 msg = f"Validation blocked: {validation.get('violation_count', 0)} unsupported claim(s)"
@@ -185,7 +217,7 @@ def generate_interview_prep(company: str, role_hint: str = "") -> dict:
         for p in problems
     )
 
-    research_section = f"## Company Research\n{research_context}\n\n" if research_context else ""
+    research_section = f"{research_context}\n\n" if research_context else ""
     full_md = f"{research_section}{content}\n\n## Practice Problems\n{problems_md}\n"
 
     output_path = app_dir / "interview_prep.md"

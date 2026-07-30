@@ -7,10 +7,10 @@ def test_match_problems_matches_by_tag_keyword():
         limit=5,
     )
 
-    titles = [p["title"] for p in result]
-    assert any(p["title"] == "Number of Islands" for p in result) or any(
-        "graphs" in p["tags"] for p in result
-    )
+    # _DEFAULT_PROBLEMS (the no-match fallback) is not uniformly tagged "graphs" —
+    # only "Number of Islands" qualifies. Asserting every result carries "graphs"
+    # can only pass via real tag-matching, not fallback luck.
+    assert all("graphs" in p["tags"] for p in result)
     assert len(result) <= 5
 
 
