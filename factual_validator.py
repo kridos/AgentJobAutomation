@@ -132,6 +132,8 @@ def _extract_canonical_name(resume_master: str) -> str:
 def _candidate_name_from_output(text: str) -> str:
     for line in text.splitlines()[:6]:
         cleaned = line.strip().lstrip("#").strip("* ")
+        if re.match(r"^(hi|hello|hey|dear)\b", cleaned, re.IGNORECASE):
+            continue
         if re.fullmatch(r"[A-Z][a-z]+\s+[A-Z][a-z]+", cleaned):
             return cleaned
     return ""

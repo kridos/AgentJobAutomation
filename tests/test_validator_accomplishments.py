@@ -61,3 +61,12 @@ def test_metric_only_in_accomplishments_not_flagged(tmp_path, monkeypatch):
 
     metric_violations = [v for v in result["violations"] if v["category"] == "metric_claim"]
     assert metric_violations == []
+
+
+def test_candidate_name_from_output_skips_greeting_lines():
+    assert factual_validator._candidate_name_from_output("Hi Jane,\n\nI wanted to reach out...") == ""
+    assert factual_validator._candidate_name_from_output("Dear Jane,\n\nI wanted to reach out...") == ""
+
+
+def test_candidate_name_from_output_still_finds_resume_name():
+    assert factual_validator._candidate_name_from_output("John Smith\nSoftware Engineer\n") == "John Smith"

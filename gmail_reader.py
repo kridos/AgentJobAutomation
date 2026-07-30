@@ -28,6 +28,9 @@ GMAIL_MCP_URL = "https://gmailmcp.googleapis.com/mcp/v1"
 DEFAULT_SEARCH_TOOL = "search_threads"
 DEFAULT_DRAFT_TOOL = "create_draft"
 _TOOL_NAME_CACHE: dict[str, str] = {}
+# Substrings that mark a tool as unsafe to use as a fallback "draft" match —
+# never auto-send, delete, or mutate. See _resolve_draft_tool_name.
+_UNSAFE_DRAFT_SUBSTRINGS = ("send", "delete", "trash", "discard", "update", "list", "get")
 
 # Recruiter email search query for independent sourcing
 RECRUITER_QUERY = (
@@ -143,7 +146,8 @@ def _resolve_draft_tool_name(mcp_url: str = GMAIL_MCP_URL, configured_tool: str 
             return candidate
 
     for tool in tools:
-        if "draft" in tool.lower():
+        lowered = tool.lower()
+        if "draft" in lowered and not any(word in lowered for word in _UNSAFE_DRAFT_SUBSTRINGS):
             _TOOL_NAME_CACHE[cache_key] = tool
             return tool
 

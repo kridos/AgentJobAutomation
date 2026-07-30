@@ -14,7 +14,13 @@ from pathlib import Path
 import yaml
 
 from generator import _call_ollama, _load_context_files, DEFAULT_MODEL, OLLAMA_BASE_URL
-from factual_validator import validate_outputs, format_validation_feedback
+from factual_validator import (
+    validate_outputs,
+    format_validation_feedback,
+    _check_metric_claims,
+    _extract_allowed_metrics,
+    _load_resume_master,
+)
 from gmail_reader import create_draft, GMAIL_MCP_URL
 
 
@@ -169,6 +175,27 @@ def _build_subject(contact: dict) -> str:
     return f"Quick question about opportunities at {company}"
 
 
+def _validate_email(body: str, contact: dict, model: str, base_url: str, semantic_check: bool = True) -> dict:
+    """Validate the email body, supplementing validate_outputs' reused checks
+    with a genuine metric check against the canonical resume (validate_outputs'
+    (body, body) argument-doubling makes its own metric check a no-op, since
+    every metric in the email gets added to its own allow-list)."""
+    validation = validate_outputs(body, body, contact, model=model, base_url=base_url, semantic_check=semantic_check)
+
+    resume_master = _load_resume_master()
+    allowed_metrics = _extract_allowed_metrics(resume_master)
+    metric_violations = _check_metric_claims(body, allowed_metrics)
+
+    if metric_violations:
+        violations = validation.get("violations", []) + metric_violations
+        validation["violations"] = violations
+        validation["violation_count"] = len(violations)
+        validation["categories"] = sorted(set(validation.get("categories", [])) | {"metric_claim"})
+        validation["passed"] = False
+
+    return validation
+
+
 def run_outreach() -> dict:
     config = _load_config()
     ollama_cfg = config.get("ollama", {})
@@ -179,6 +206,7 @@ def run_outreach() -> dict:
     temperature = ollama_cfg.get("temperature", 0.7)
     mcp_url = gmail_cfg.get("mcp_url", GMAIL_MCP_URL)
     tool_name = gmail_cfg.get("tool_name", "")
+    semantic_check = config.get("validation", {}).get("semantic_check", True)
 
     contacts = _load_contacts()
     processed = _load_outreach_processed()
@@ -202,14 +230,14 @@ def run_outreach() -> dict:
 
         try:
             body = generate_cold_email(contact, model=model, base_url=base_url, temperature=temperature)
-            validation = validate_outputs(body, body, contact, model=model, base_url=base_url)
+            validation = _validate_email(body, contact, model, base_url, semantic_check=semantic_check)
 
             if not validation.get("passed", False):
                 feedback = format_validation_feedback(validation)
                 retry_temp = min(float(temperature), 0.2)
                 print(f"[outreach] Validation failed for {company}. Retrying once...", flush=True)
                 body = generate_cold_email(contact, validation_feedback=feedback, model=model, base_url=base_url, temperature=retry_temp)
-                validation = validate_outputs(body, body, contact, model=model, base_url=base_url)
+                validation = _validate_email(body, contact, model, base_url, semantic_check=semantic_check)
 
                 if not validation.get("passed", False):
                     msg = f"Validation blocked for {company} ({contact_id}): {validation.get('violation_count', 0)} unsupported claim(s)"

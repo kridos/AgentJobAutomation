@@ -32,6 +32,16 @@ def test_resolve_draft_tool_name_falls_back_to_default_when_list_fails(monkeypat
     assert result == gmail_reader.DEFAULT_DRAFT_TOOL
 
 
+def test_resolve_draft_tool_name_excludes_unsafe_substring_match(monkeypatch):
+    gmail_reader._TOOL_NAME_CACHE.clear()
+    monkeypatch.setattr(gmail_reader, "_mcp_list_tools", lambda mcp_url: ["send_draft"])
+
+    result = gmail_reader._resolve_draft_tool_name("https://fake-mcp", "")
+
+    assert result != "send_draft"
+    assert result == gmail_reader.DEFAULT_DRAFT_TOOL
+
+
 def test_create_draft_returns_true_on_success(monkeypatch):
     gmail_reader._TOOL_NAME_CACHE.clear()
     monkeypatch.setattr(gmail_reader, "_mcp_list_tools", lambda mcp_url: ["gmail_create_draft"])
