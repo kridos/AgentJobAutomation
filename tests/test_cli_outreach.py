@@ -13,7 +13,7 @@ def test_outreach_add_dispatches_to_add_contact_interactive(monkeypatch):
 
 
 def test_outreach_run_dispatches_to_run_outreach(monkeypatch, capsys):
-    monkeypatch.setattr("outreach.run_outreach", lambda: {"drafted": 2, "skipped": 1, "errors": []})
+    monkeypatch.setattr("outreach.run_outreach", lambda: {"drafted": 2, "skipped": 1, "unconfirmed_skipped": 0, "errors": []})
 
     parser = build_parser()
     args = parser.parse_args(["outreach", "run"])
@@ -27,7 +27,7 @@ def test_outreach_run_dispatches_to_run_outreach(monkeypatch, capsys):
 def test_outreach_list_prints_status(monkeypatch, capsys):
     monkeypatch.setattr(
         "outreach.list_outreach_status",
-        lambda: [{"company": "Acme Corp", "contact_email": "jane@acme.com", "status": "pending"}],
+        lambda: [{"company": "Acme Corp", "contact_email": "jane@acme.com", "status": "pending", "confirmed": True}],
     )
 
     parser = build_parser()

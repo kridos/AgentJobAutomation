@@ -62,8 +62,14 @@ automator outreach add
 # Generate + draft cold emails for pending contacts (creates Gmail drafts, never sends)
 automator outreach run
 
-# Show outreach contact status
+# Show outreach contact status (drafted/pending, confirmed/unconfirmed)
 automator outreach list
+
+# Discover new startup contacts from YC's directory (guesses + SMTP-verifies emails)
+automator outreach discover
+
+# Manually confirm/override a discovered contact's email
+automator outreach confirm <contact-id> <email>
 
 # Quick-capture a recent accomplishment
 automator log "Shipped RGB-D fusion milestone" --tags robotics,ai-ml

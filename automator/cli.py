@@ -90,11 +90,31 @@ def _cmd_outreach_add(args: argparse.Namespace) -> None:
     add_contact_interactive()
 
 
+def _cmd_outreach_discover(args: argparse.Namespace) -> None:
+    from outreach import discover_contacts
+
+    stats = discover_contacts()
+    print(f"\nDone. Found: {stats['found']} | Added: {stats['added']} | Skipped duplicates: {stats['skipped_duplicate']}")
+
+
+def _cmd_outreach_confirm(args: argparse.Namespace) -> None:
+    from outreach import confirm_contact_manual
+
+    if confirm_contact_manual(args.contact_id, args.email):
+        print(f"Confirmed {args.contact_id} — {args.email}")
+    else:
+        print(f"No contact found with id '{args.contact_id}'", file=sys.stderr)
+        sys.exit(1)
+
+
 def _cmd_outreach_run(args: argparse.Namespace) -> None:
     from outreach import run_outreach
 
     stats = run_outreach()
-    print(f"\nDone. Drafted: {stats['drafted']} | Skipped: {stats['skipped']} | Errors: {len(stats['errors'])}")
+    print(
+        f"\nDone. Drafted: {stats['drafted']} | Skipped: {stats['skipped']} | "
+        f"Unconfirmed (held back): {stats['unconfirmed_skipped']} | Errors: {len(stats['errors'])}"
+    )
     if stats["errors"]:
         for e in stats["errors"]:
             print(f"  ERROR: {e}", file=sys.stderr)
@@ -108,7 +128,8 @@ def _cmd_outreach_list(args: argparse.Namespace) -> None:
         print("No outreach contacts yet. Add one with: automator outreach add")
         return
     for s in statuses:
-        print(f"[{s['status']:8}] {s['company']} — {s['contact_email']}")
+        confirmed_label = "confirmed" if s["confirmed"] else "unconfirmed"
+        print(f"[{s['status']:8}] [{confirmed_label:11}] {s['company']} — {s['contact_email']}")
 
 
 _TEST_MODULES = {
@@ -173,6 +194,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     outreach_list_p = outreach_sub.add_parser("list", help="Show outreach contact status")
     outreach_list_p.set_defaults(func=_cmd_outreach_list)
+
+    outreach_discover_p = outreach_sub.add_parser("discover", help="Discover new startup contacts (YC directory)")
+    outreach_discover_p.set_defaults(func=_cmd_outreach_discover)
+
+    outreach_confirm_p = outreach_sub.add_parser("confirm", help="Manually confirm/override a contact's email")
+    outreach_confirm_p.add_argument("contact_id", help="The contact's id (see `automator outreach list`)")
+    outreach_confirm_p.add_argument("email", help="The email address to set and confirm")
+    outreach_confirm_p.set_defaults(func=_cmd_outreach_confirm)
 
     test_p = subparsers.add_parser("test", help="Run a module's self-test")
     test_p.add_argument("module", choices=sorted(_TEST_MODULES))
