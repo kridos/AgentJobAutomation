@@ -46,7 +46,7 @@ def _summarize_research(company: str, role: str, raw_text: str) -> str:
     Ollama model. Returns '' if the Ollama call fails — never raises."""
     prompt = (
         f"Here are raw web search results about {company}, relevant to a "
-        f"{role} internship application:\n\n{raw_text[:3000]}\n\n"
+        f"{role} internship application:\n\n{raw_text[:5000]}\n\n"
         f"Summarize into concise markdown bullet points covering: main tech "
         f"stack, recent projects or engineering blog posts, company culture "
         f"and values, and what they look for in interns. Only include what "
@@ -54,7 +54,7 @@ def _summarize_research(company: str, role: str, raw_text: str) -> str:
         f"leave it out rather than guessing or fabricating."
     )
     try:
-        return _call_ollama(prompt).strip()
+        return _call_ollama(prompt, temperature=0.2).strip()
     except Exception as e:
         print(f"[researcher] Ollama summarization failed: {e}", file=sys.stderr)
         return ""
