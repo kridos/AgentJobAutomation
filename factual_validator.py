@@ -37,8 +37,12 @@ def _normalize(s: str) -> str:
 
 
 def _load_resume_master() -> str:
-    path = CONTEXT_DIR / "resume_master.md"
-    return path.read_text(encoding="utf-8") if path.exists() else ""
+    parts = []
+    for name in ("resume_master.md", "accomplishments.md", "recent_updates.md"):
+        path = CONTEXT_DIR / name
+        if path.exists():
+            parts.append(path.read_text(encoding="utf-8"))
+    return "\n".join(parts)
 
 
 def _extract_allowed_contacts(resume_master: str) -> set[str]:
