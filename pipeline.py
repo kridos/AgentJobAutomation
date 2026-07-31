@@ -186,6 +186,7 @@ def _process_listing(
     # --- Web research (optional, non-fatal) ---
     research_context = ""
     if research_enabled:
+        print(f"  [pipeline] Researching {company} (up to {research_timeout}s)...", flush=True)
         try:
             research_context = research(company, role, research_timeout)
         except Exception as e:
@@ -222,6 +223,7 @@ def _process_listing(
             max_tokens=ollama_cfg.get("max_tokens", 4096),
         )
 
+        print(f"  [pipeline] Validating generated content for {company}...", flush=True)
         first_validation = validate_outputs(
             resume_md, cover_md, listing_dict,
             model=ollama_cfg.get("model", "qwen3:14b"),
@@ -279,6 +281,7 @@ def _process_listing(
         stats["errors"].append(msg)
         return
 
+    print(f"  [pipeline] Scoring quality for {company}...", flush=True)
     score_meta = score_application(
         resume_md=resume_md,
         cover_md=cover_md,
