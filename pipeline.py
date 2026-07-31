@@ -263,6 +263,8 @@ def _process_listing(
                     f"{second_validation.get('violation_count', 0)} unsupported claim(s)"
                 )
                 print(f"  [pipeline] ERROR: {msg}", file=sys.stderr)
+                for v in second_validation.get("violations", []):
+                    print(f"    - [{v.get('category', '?')}] {v.get('claim', '')!r} — {v.get('reason', '')}", file=sys.stderr)
                 stats["errors"].append(msg)
                 stats["blocked_validation"] += 1
                 stats["listings"].append({
