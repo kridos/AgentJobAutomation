@@ -188,7 +188,11 @@ def _process_listing(
     if research_enabled:
         print(f"  [pipeline] Researching {company} (up to {research_timeout}s)...", flush=True)
         try:
-            research_context = research(company, role, research_timeout)
+            research_context = research(
+                company, role, research_timeout,
+                model=ollama_cfg.get("model", "qwen3:14b"),
+                base_url=ollama_cfg.get("base_url", "http://localhost:11434"),
+            )
         except Exception as e:
             print(f"  [pipeline] Research failed (non-fatal): {e}", file=sys.stderr)
 

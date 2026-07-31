@@ -38,7 +38,7 @@ def test_summarize_research_returns_ollama_output_on_success(monkeypatch):
         lambda prompt, **kwargs: "- Uses Python and Go\n- Values ownership",
     )
 
-    result = researcher._summarize_research("Acme", "SWE Intern", "raw search text here")
+    result = researcher._summarize_research("Acme", "SWE Intern", "raw search text here", "qwen3:14b", "http://localhost:11434")
 
     assert result == "- Uses Python and Go\n- Values ownership"
 
@@ -49,7 +49,7 @@ def test_summarize_research_returns_empty_on_ollama_failure(monkeypatch):
 
     monkeypatch.setattr("researcher._call_ollama", _raise)
 
-    result = researcher._summarize_research("Acme", "SWE Intern", "raw search text here")
+    result = researcher._summarize_research("Acme", "SWE Intern", "raw search text here", "qwen3:14b", "http://localhost:11434")
 
     assert result == ""
 
@@ -73,6 +73,21 @@ def test_research_skips_summarize_when_search_result_too_short(monkeypatch):
     assert calls == []
 
 
+def test_summarize_research_passes_configured_model_to_ollama(monkeypatch):
+    captured = {}
+
+    def _fake_call_ollama(prompt, **kwargs):
+        captured.update(kwargs)
+        return "- summary"
+
+    monkeypatch.setattr("researcher._call_ollama", _fake_call_ollama)
+
+    researcher._summarize_research("Acme", "SWE Intern", "raw text", "qwen3:14b", "http://custom:1234")
+
+    assert captured["model"] == "qwen3:14b"
+    assert captured["base_url"] == "http://custom:1234"
+
+
 def test_research_returns_wrapped_summary_on_success(monkeypatch):
     monkeypatch.setattr(
         researcher, "_search_duckduckgo",
@@ -80,7 +95,7 @@ def test_research_returns_wrapped_summary_on_success(monkeypatch):
     )
     monkeypatch.setattr(
         researcher, "_summarize_research",
-        lambda company, role, raw_text: "- Uses Python and Go\n- Values ownership",
+        lambda company, role, raw_text, model, base_url: "- Uses Python and Go\n- Values ownership",
     )
 
     result = researcher.research("Acme", "SWE Intern", timeout_seconds=10)

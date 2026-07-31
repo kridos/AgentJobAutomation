@@ -38,7 +38,10 @@ ACTION_VERBS = {
 }
 
 # Metrics patterns (numbers that show impact)
-METRIC_PATTERN = re.compile(r"\b(\d+[\.]?\d*)\s*(%|x|times?|days?|hours?|seconds?|ms|gb|api|requests?|queries?|deployments?|users?|customers?|concurrent|rps|qps)\b", re.IGNORECASE)
+METRIC_PATTERN = re.compile(
+    r"\b(\d+[\.]?\d*)\s*(%|(?:x|times?|days?|hours?|seconds?|ms|gb|api|requests?|queries?|deployments?|users?|customers?|concurrent|rps|qps)\b)",
+    re.IGNORECASE,
+)
 
 
 def _load_resume_master() -> str:
@@ -50,14 +53,21 @@ def _normalize(term: str) -> str:
     return re.sub(r"\s+", " ", term.strip().lower())
 
 
+def _contains_term(text: str, term: str) -> bool:
+    """Whole-word/phrase match — plain substring matching would let short
+    lexicon terms like "go" match inside unrelated words like "Government"."""
+    return re.search(rf"(?<!\w){re.escape(term)}(?!\w)", text) is not None
+
+
 def _extract_job_keywords(job_description: str, resume_master: str, listing: dict) -> list[str]:
     keywords = []
     lowered_jd = job_description.lower()
     for term in sorted(KEYWORD_LEXICON):
-        if term in lowered_jd:
+        if _contains_term(lowered_jd, term):
             keywords.append(term)
 
-    allowed_resume_terms = {_normalize(term) for term in KEYWORD_LEXICON if term in resume_master.lower()}
+    lowered_resume = resume_master.lower()
+    allowed_resume_terms = {_normalize(term) for term in KEYWORD_LEXICON if _contains_term(lowered_resume, term)}
 
     if len(keywords) < 5:
         seen = set(keywords)
@@ -95,8 +105,8 @@ def _score_requirement_match(combined_text: str, keywords: list[str]) -> tuple[f
         return 50.0, [], [], {"keyword_coverage": 0.0, "total_keywords": 0}
 
     lowered = combined_text.lower()
-    matched = [kw for kw in keywords if kw in lowered]
-    missing = [kw for kw in keywords if kw not in lowered]
+    matched = [kw for kw in keywords if _contains_term(lowered, kw)]
+    missing = [kw for kw in keywords if not _contains_term(lowered, kw)]
     
     coverage = len(matched) / len(keywords)
     score = 100.0 * coverage

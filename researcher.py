@@ -9,7 +9,7 @@ import sys
 
 import httpx
 
-from generator import _call_ollama
+from generator import _call_ollama, DEFAULT_MODEL, OLLAMA_BASE_URL
 from job_fetcher import _clean_html
 
 _MIN_RESULT_LENGTH = 100
@@ -41,7 +41,7 @@ def _search_duckduckgo(query: str, timeout: float) -> str:
         return ""
 
 
-def _summarize_research(company: str, role: str, raw_text: str) -> str:
+def _summarize_research(company: str, role: str, raw_text: str, model: str, base_url: str) -> str:
     """Summarize raw search-result text into markdown bullets via the local
     Ollama model. Returns '' if the Ollama call fails — never raises."""
     prompt = (
@@ -54,13 +54,19 @@ def _summarize_research(company: str, role: str, raw_text: str) -> str:
         f"leave it out rather than guessing or fabricating."
     )
     try:
-        return _call_ollama(prompt, temperature=0.2).strip()
+        return _call_ollama(prompt, model=model, base_url=base_url, temperature=0.2).strip()
     except Exception as e:
         print(f"[researcher] Ollama summarization failed: {e}", file=sys.stderr)
         return ""
 
 
-def research(company: str, role: str, timeout_seconds: int = 30) -> str:
+def research(
+    company: str,
+    role: str,
+    timeout_seconds: int = 30,
+    model: str = DEFAULT_MODEL,
+    base_url: str = OLLAMA_BASE_URL,
+) -> str:
     """
     Research company + role for internship context.
     Returns a markdown string, or empty string if research fails.
@@ -72,7 +78,7 @@ def research(company: str, role: str, timeout_seconds: int = 30) -> str:
     if len(raw_text) < _MIN_RESULT_LENGTH:
         return ""
 
-    summary = _summarize_research(company, role, raw_text)
+    summary = _summarize_research(company, role, raw_text, model, base_url)
     if not summary:
         return ""
 

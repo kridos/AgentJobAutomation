@@ -178,6 +178,7 @@ def generate_interview_prep(company: str, role_hint: str = "") -> dict:
             research_context = research(
                 listing.get("company", company), listing.get("role", ""),
                 research_cfg.get("timeout_seconds", 30),
+                model=model, base_url=base_url,
             )
         except Exception as e:
             print(f"[interview_prep] Research failed (non-fatal): {e}", file=sys.stderr)
