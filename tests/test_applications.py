@@ -52,6 +52,19 @@ def test_list_applications_skips_malformed_listing_but_keeps_others(tmp_path, mo
     assert "malformed" in capsys.readouterr().err
 
 
+def test_list_applications_skips_non_dict_json_but_keeps_others(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    bad_dir, _ = _seed_app(company="Bad Co", company_slug="bad_co", role_slug="intern")
+    (bad_dir / "listing.json").write_text("[1, 2]", encoding="utf-8")
+    _seed_app(company="Good Co", company_slug="good_co", role_slug="intern")
+
+    apps = applications.list_applications()
+
+    assert len(apps) == 1
+    assert apps[0]["company"] == "Good Co"
+    assert "malformed" in capsys.readouterr().err
+
+
 def test_get_application_returns_none_for_unknown_id(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _seed_app()

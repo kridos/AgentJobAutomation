@@ -77,7 +77,7 @@ def _render_outreach_list() -> str:
         return "<p>No outreach contacts yet.</p>"
     rows = "".join(
         f'<tr><td>{html.escape(c["company"])}</td><td>{html.escape(c["contact_email"])}</td>'
-        f'<td>{html.escape(c["status"])}</td><td>{c["confirmed"]}</td></tr>'
+        f'<td>{html.escape(c["status"])}</td><td>{html.escape(str(c["confirmed"]))}</td></tr>'
         for c in contacts
     )
     return (
@@ -98,59 +98,84 @@ class _Handler(BaseHTTPRequestHandler):
     def _not_found(self, message: str = "Not found.") -> None:
         self._send_html(404, _layout("Not Found", f"<p>{message}</p>"))
 
+    def _host_header_valid(self) -> bool:
+        expected = f"{self.server.gui_host}:{self.server.gui_port}"
+        # Loopback tools are commonly addressed as either 127.0.0.1 or
+        # localhost regardless of the bind host, so accept both.
+        allowed = {expected, f"localhost:{self.server.gui_port}"}
+        return self.headers.get("Host", "") in allowed
+
     def do_GET(self) -> None:
-        path = self.path
-        if path == "/":
-            self._send_html(200, _layout("Applications", _render_applications_list()))
-        elif path == "/outreach":
-            self._send_html(200, _layout("Outreach", _render_outreach_list()))
-        elif path.startswith("/applications/"):
-            app_id = path[len("/applications/"):]
-            app = get_application(app_id)
-            if app is None:
-                self._not_found("No such application.")
-                return
-            title = f'{app["company"]} — {app["role"]}'
-            self._send_html(200, _layout(title, _render_application_detail(app)))
-        elif path.startswith("/prep/"):
-            app_id = path[len("/prep/"):]
-            app = get_application(app_id)
-            if app is None:
-                self._not_found("No such application.")
-                return
-            prep_path = Path("output") / app_id / "interview_prep.md"
-            if not prep_path.exists():
-                self._not_found(
-                    f'No interview prep generated yet. Run <code>automator prep</code> for this application.'
-                )
-                return
-            body = f"<pre>{html.escape(prep_path.read_text(encoding='utf-8'))}</pre>"
-            self._send_html(200, _layout("Interview Prep", body))
-        else:
-            self._not_found()
+        if not self._host_header_valid():
+            self._send_html(403, _layout("Forbidden", "<p>Invalid Host header.</p>"))
+            return
+        try:
+            path = self.path
+            if path == "/":
+                self._send_html(200, _layout("Applications", _render_applications_list()))
+            elif path == "/outreach":
+                self._send_html(200, _layout("Outreach", _render_outreach_list()))
+            elif path.startswith("/applications/"):
+                app_id = path[len("/applications/"):]
+                app = get_application(app_id)
+                if app is None:
+                    self._not_found("No such application.")
+                    return
+                title = f'{app["company"]} — {app["role"]}'
+                self._send_html(200, _layout(title, _render_application_detail(app)))
+            elif path.startswith("/prep/"):
+                app_id = path[len("/prep/"):]
+                app = get_application(app_id)
+                if app is None:
+                    self._not_found("No such application.")
+                    return
+                prep_path = Path("output") / app_id / "interview_prep.md"
+                if not prep_path.exists():
+                    self._not_found(
+                        f'No interview prep generated yet. Run <code>automator prep</code> for this application.'
+                    )
+                    return
+                body = f"<pre>{html.escape(prep_path.read_text(encoding='utf-8'))}</pre>"
+                self._send_html(200, _layout("Interview Prep", body))
+            else:
+                self._not_found()
+        except Exception:
+            self._send_html(500, _layout("Server Error", "<p>An unexpected error occurred.</p>"))
 
     def do_POST(self) -> None:
-        path = self.path
-        if path.startswith("/applications/") and path.endswith("/status"):
-            app_id = path[len("/applications/"):-len("/status")]
-            length = int(self.headers.get("Content-Length", 0))
-            raw_body = self.rfile.read(length).decode("utf-8")
-            status = parse_qs(raw_body).get("status", [""])[0]
-            if set_application_status(app_id, status):
-                self.send_response(303)
-                self.send_header("Location", f"/applications/{app_id}")
-                self.end_headers()
-            else:
-                self._send_html(400, _layout("Bad Request", "<p>Invalid status or unknown application.</p>"))
+        if not self._host_header_valid():
+            self._send_html(403, _layout("Forbidden", "<p>Invalid Host header.</p>"))
             return
-        self._not_found()
+        try:
+            path = self.path
+            if path.startswith("/applications/") and path.endswith("/status"):
+                app_id = path[len("/applications/"):-len("/status")]
+                length = int(self.headers.get("Content-Length", 0))
+                raw_body = self.rfile.read(length).decode("utf-8")
+                status = parse_qs(raw_body).get("status", [""])[0]
+                if set_application_status(app_id, status):
+                    self.send_response(303)
+                    self.send_header("Location", f"/applications/{app_id}")
+                    self.end_headers()
+                else:
+                    self._send_html(400, _layout("Bad Request", "<p>Invalid status or unknown application.</p>"))
+                return
+            self._not_found()
+        except Exception:
+            self._send_html(500, _layout("Server Error", "<p>An unexpected error occurred.</p>"))
 
     def log_message(self, format, *args):
         pass
 
 
 def build_server(host: str = "127.0.0.1", port: int = 8420) -> HTTPServer:
-    return HTTPServer((host, port), _Handler)
+    server = HTTPServer((host, port), _Handler)
+    # Configured host/port (not the possibly-0 requested port) so the
+    # handler can validate the Host header against what we're actually
+    # bound to — guards against DNS rebinding / cross-origin requests.
+    server.gui_host = host
+    server.gui_port = server.server_address[1]
+    return server
 
 
 def run_gui(host: str = "127.0.0.1", port: int = 8420) -> None:

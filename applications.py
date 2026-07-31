@@ -17,9 +17,12 @@ def _read_json(path: Path) -> tuple[dict | None, bool]:
     if not path.exists():
         return {}, True
     try:
-        return json.loads(path.read_text(encoding="utf-8")), True
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None, False
+    if not isinstance(data, dict):
+        return None, False
+    return data, True
 
 
 def list_applications() -> list[dict]:

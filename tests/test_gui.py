@@ -143,6 +143,45 @@ def test_resume_content_is_html_escaped(tmp_path, monkeypatch):
         server.server_close()
 
 
+def test_all_rendered_fields_are_html_escaped(tmp_path, monkeypatch):
+    payload = "<script>alert(1)</script>"
+    monkeypatch.chdir(tmp_path)
+    app_id = _seed_app(company=payload, resume_md="body")
+    (Path("output") / app_id / "status.json").write_text(
+        json.dumps({"status": "pending"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        gui, "list_outreach_status",
+        lambda: [{"company": payload, "contact_email": payload,
+                   "status": "pending", "confirmed": payload}],
+    )
+    server = _running_server()
+    try:
+        for path in ("/", f"/applications/{app_id}", "/outreach"):
+            status, body = _get(server, path)
+            assert status == 200
+            assert payload not in body
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_wrong_host_header_rejected(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _seed_app()
+    server = _running_server()
+    try:
+        conn = HTTPConnection("127.0.0.1", server.server_address[1])
+        conn.request("GET", "/", headers={"Host": "evil.com"})
+        resp = conn.getresponse()
+        resp.read()
+        conn.close()
+        assert resp.status == 403
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_path_traversal_attempts_rejected(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _seed_app()
