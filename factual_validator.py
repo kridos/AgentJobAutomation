@@ -23,7 +23,7 @@ _DEGREE_RE = re.compile(r"\b(?:B\.S\.|M\.S\.|Ph\.D\.|Bachelor(?:'s)?|Master(?:'s
 _HEADING_ORG_RE = re.compile(r"^\s*(?:#{1,3}\s*)?\*\*?([A-Za-z0-9& .,'/-]{2,80})\*\*?\s*[—-]\s*", re.MULTILINE)
 _SECTION_HEADER_RE = re.compile(r"^\s*#{1,3}\s*([A-Z][A-Z\s&/-]{2,})\s*$")
 _PROJECT_HEADING_RE = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
-_METRIC_RE = re.compile(r"\b\d+(?:\.\d+)?%\b|\b\d+(?:\.\d+)?x\b", re.IGNORECASE)
+_METRIC_RE = re.compile(r"\b\d+(?:\.\d+)?%|\b\d+(?:\.\d+)?x\b", re.IGNORECASE)
 
 COMMON_TECH_TERMS = {
     "python", "java", "typescript", "javascript", "c", "c++", "dart", "sql", "r", "assembly",
