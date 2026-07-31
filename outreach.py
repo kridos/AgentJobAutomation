@@ -21,7 +21,7 @@ from factual_validator import (
     _extract_allowed_metrics,
     _load_resume_master,
 )
-from gmail_reader import create_draft, GMAIL_MCP_URL
+from gmail_reader import create_draft
 from email_verify import guess_and_verify_email
 from yc_scraper import scrape_yc_directory
 
@@ -278,13 +278,10 @@ def _validate_email(body: str, contact: dict, model: str, base_url: str, semanti
 def run_outreach() -> dict:
     config = _load_config()
     ollama_cfg = config.get("ollama", {})
-    gmail_cfg = config.get("gmail", {})
 
     model = ollama_cfg.get("model", "qwen3:14b")
     base_url = ollama_cfg.get("base_url", "http://localhost:11434")
     temperature = ollama_cfg.get("temperature", 0.7)
-    mcp_url = gmail_cfg.get("mcp_url", GMAIL_MCP_URL)
-    tool_name = gmail_cfg.get("tool_name", "")
     semantic_check = config.get("validation", {}).get("semantic_check", True)
 
     contacts = _load_contacts()
@@ -335,7 +332,7 @@ def run_outreach() -> dict:
 
         subject = _build_subject(contact)
         try:
-            drafted = create_draft(email_addr, subject, body, mcp_url=mcp_url, tool_name=tool_name)
+            drafted = create_draft(email_addr, subject, body)
         except Exception as e:
             drafted = False
             msg = f"Draft creation failed for {company} ({contact_id}): {e}"

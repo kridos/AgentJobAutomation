@@ -132,6 +132,13 @@ def _cmd_outreach_list(args: argparse.Namespace) -> None:
         print(f"[{s['status']:8}] [{confirmed_label:11}] {s['company']} — {s['contact_email']}")
 
 
+def _cmd_gmail_auth(args: argparse.Namespace) -> None:
+    from gmail_reader import run_oauth_flow
+
+    if not run_oauth_flow():
+        sys.exit(1)
+
+
 _TEST_MODULES = {
     "scraper": "scraper",
     "gmail": "gmail_reader",
@@ -222,6 +229,12 @@ def build_parser() -> argparse.ArgumentParser:
     outreach_confirm_p.add_argument("contact_id", help="The contact's id (see `automator outreach list`)")
     outreach_confirm_p.add_argument("email", help="The email address to set and confirm")
     outreach_confirm_p.set_defaults(func=_cmd_outreach_confirm)
+
+    gmail_p = subparsers.add_parser("gmail", help="Gmail API setup")
+    gmail_sub = gmail_p.add_subparsers(dest="gmail_command", required=True)
+
+    gmail_auth_p = gmail_sub.add_parser("auth", help="One-time OAuth login (requires credentials.json)")
+    gmail_auth_p.set_defaults(func=_cmd_gmail_auth)
 
     prep_p = subparsers.add_parser("prep", help="Generate interview prep material for an application")
     prep_p.add_argument("company", help="Company name (matches an existing application in output/)")

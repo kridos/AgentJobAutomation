@@ -176,8 +176,6 @@ def _process_listing(
             emails = search_emails(
                 company,
                 max_results=gmail_cfg.get("max_results", 5),
-                mcp_url=gmail_cfg.get("mcp_url", "https://gmailmcp.googleapis.com/mcp/v1"),
-                tool_name=gmail_cfg.get("tool_name", ""),
             )
             email_context = format_emails_for_context(emails)
         except Exception as e:
@@ -618,8 +616,6 @@ def run_pipeline(dry_run: bool = False, limit: int | None = None) -> dict:
         try:
             gmail_listings = get_recruiter_listings(
                 max_results=gmail_cfg.get("recruiter_scan_limit", 30),
-                mcp_url=gmail_cfg.get("mcp_url", "https://gmailmcp.googleapis.com/mcp/v1"),
-                tool_name=gmail_cfg.get("tool_name", ""),
             )
             stats["found"] += len(gmail_listings)
             print(f"[pipeline] Found {len(gmail_listings)} Gmail recruiter listing(s)", flush=True)

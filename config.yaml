@@ -14,8 +14,6 @@ scraper:
   branch: "dev"  # SimplifyJobs uses dev branch for current listings
 
 gmail:
-  mcp_url: "https://gmailmcp.googleapis.com/mcp/v1"
-  tool_name: ""           # optional override if the MCP server exposes a non-default Gmail search tool name
   max_results: 5           # emails to fetch when cross-referencing a company
   recruiter_scan_limit: 30 # emails to scan for independent recruiter listings
 

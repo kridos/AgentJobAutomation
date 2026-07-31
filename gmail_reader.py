@@ -1,36 +1,46 @@
 """
-Two modes:
+Real Gmail API integration (OAuth 2.0 installed-app flow).
+Two read modes:
   1. search_emails(company)       — cross-reference: find emails about a known company
   2. get_recruiter_listings()     — independent source: find recruiter outreach emails
                                     and parse them into Listing objects
+Plus create_draft() — creates a Gmail draft. Never sends (the send endpoint
+is never called anywhere in this file).
+
+One-time setup: create a Google Cloud project, enable the Gmail API, create
+an OAuth 2.0 Client ID of type "Desktop app", and save its downloaded JSON
+as credentials.json in the repo root (gitignored). Then run
+`automator gmail auth` (or `python3 gmail_reader.py auth`) once to log in —
+this opens a browser for Google's consent screen and saves a refreshable
+token to token.json (also gitignored). Every later run refreshes it silently.
 
 Run standalone:
-  python3 gmail_reader.py company "Stripe"       # mode 1
-  python3 gmail_reader.py listings               # mode 2
+  python3 gmail_reader.py auth                    # one-time OAuth login
+  python3 gmail_reader.py company "Stripe"         # mode 1
+  python3 gmail_reader.py listings                 # mode 2
 """
 
+import base64
 import json
-import os
 import re
 import sys
-import httpx
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
+from email.mime.text import MIMEText
 from pathlib import Path
-from typing import Optional
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv(Path(__file__).parent / ".env", override=False)
-except ImportError:
-    pass
+import httpx
+from google.auth.exceptions import RefreshError
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
 
-GMAIL_MCP_URL = "https://gmailmcp.googleapis.com/mcp/v1"
-DEFAULT_SEARCH_TOOL = "search_threads"
-DEFAULT_DRAFT_TOOL = "create_draft"
-_TOOL_NAME_CACHE: dict[str, str] = {}
-# Substrings that mark a tool as unsafe to use as a fallback "draft" match —
-# never auto-send, delete, or mutate. See _resolve_draft_tool_name.
-_UNSAFE_DRAFT_SUBSTRINGS = ("send", "delete", "trash", "discard", "update", "list", "get")
+CREDENTIALS_PATH = Path(__file__).parent / "credentials.json"
+TOKEN_PATH = Path(__file__).parent / "token.json"
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.compose",
+]
+GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 
 # Recruiter email search query for independent sourcing
 RECRUITER_QUERY = (
@@ -40,153 +50,158 @@ RECRUITER_QUERY = (
 )
 
 
-# ── MCP helpers ──────────────────────────────────────────────────────────────
+# ── OAuth ─────────────────────────────────────────────────────────────────
 
-def _get_auth_headers() -> dict:
-    token = os.environ.get("GMAIL_MCP_TOKEN", "").strip()
-    if token:
-        return {"Authorization": f"Bearer {token}"}
-    return {}
+def run_oauth_flow() -> bool:
+    """One-time interactive OAuth login. Opens a browser for the Google
+    consent screen, saves a refreshable token to TOKEN_PATH. Returns False
+    (with a clear message) if credentials.json is missing."""
+    if not CREDENTIALS_PATH.exists():
+        print(
+            f"[gmail_reader] {CREDENTIALS_PATH} not found. Create an OAuth "
+            "Desktop app client in Google Cloud Console (with the Gmail API "
+            "enabled) and save its downloaded JSON as credentials.json here first.",
+            file=sys.stderr,
+        )
+        return False
+    flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_PATH), SCOPES)
+    creds = flow.run_local_server(port=0)
+    TOKEN_PATH.write_text(creds.to_json(), encoding="utf-8")
+    print(f"[gmail_reader] Saved credentials to {TOKEN_PATH}")
+    return True
 
 
-def _mcp_call(tool: str, params: dict, mcp_url: str = GMAIL_MCP_URL) -> dict:
-    payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {"name": tool, "arguments": params},
-    }
-    resp = httpx.post(mcp_url, json=payload, headers=_get_auth_headers(), timeout=15.0)
+def _load_credentials() -> Credentials | None:
+    """Loads and refreshes the saved OAuth token. Returns None (with a clear
+    message) on any failure — never raises."""
+    if not TOKEN_PATH.exists():
+        print("[gmail_reader] No saved Gmail credentials — run `automator gmail auth` first.", file=sys.stderr)
+        return None
+    try:
+        creds = Credentials.from_authorized_user_file(str(TOKEN_PATH), SCOPES)
+        if creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            TOKEN_PATH.write_text(creds.to_json(), encoding="utf-8")
+        if not creds.valid:
+            print("[gmail_reader] Gmail credentials invalid — run `automator gmail auth` again.", file=sys.stderr)
+            return None
+        return creds
+    except (RefreshError, ValueError, OSError) as e:
+        print(f"[gmail_reader] Could not load/refresh Gmail credentials: {e}", file=sys.stderr)
+        return None
+
+
+def _auth_headers() -> dict | None:
+    creds = _load_credentials()
+    if creds is None:
+        return None
+    return {"Authorization": f"Bearer {creds.token}"}
+
+
+# ── Message fetching + parsing ───────────────────────────────────────────
+
+def _list_message_ids(query: str, max_results: int, headers: dict) -> list[str]:
+    resp = httpx.get(
+        f"{GMAIL_API_BASE}/messages",
+        params={"q": query, "maxResults": max_results},
+        headers=headers,
+        timeout=15.0,
+    )
+    resp.raise_for_status()
+    return [m["id"] for m in resp.json().get("messages", [])]
+
+
+def _extract_header(headers_list: list[dict], name: str) -> str:
+    for h in headers_list:
+        if h.get("name", "").lower() == name.lower():
+            return h.get("value", "")
+    return ""
+
+
+def _decode_part_data(data: str) -> str:
+    padded = data + "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode(padded).decode("utf-8", errors="replace")
+
+
+def _extract_body(payload: dict) -> str:
+    """Walks a Gmail API message payload, preferring text/plain, falling
+    back to a stripped text/html part (including nested multipart parts)."""
+    mime_type = payload.get("mimeType", "")
+    body_data = payload.get("body", {}).get("data", "")
+
+    if mime_type == "text/plain" and body_data:
+        return _decode_part_data(body_data)
+
+    html_fallback = ""
+    for part in payload.get("parts", []) or []:
+        part_mime = part.get("mimeType", "")
+        part_data = part.get("body", {}).get("data", "")
+        if part_mime == "text/plain" and part_data:
+            return _decode_part_data(part_data)
+        if part_mime == "text/html" and part_data and not html_fallback:
+            html_fallback = _decode_part_data(part_data)
+        elif part.get("parts"):
+            nested = _extract_body(part)
+            if nested:
+                return nested
+
+    if html_fallback:
+        return re.sub(r"<[^>]+>", " ", html_fallback)
+
+    if mime_type == "text/html" and body_data:
+        return re.sub(r"<[^>]+>", " ", _decode_part_data(body_data))
+
+    return ""
+
+
+def _get_message(msg_id: str, headers: dict) -> dict:
+    resp = httpx.get(
+        f"{GMAIL_API_BASE}/messages/{msg_id}",
+        params={"format": "full"},
+        headers=headers,
+        timeout=15.0,
+    )
     resp.raise_for_status()
     data = resp.json()
-    if "error" in data:
-        raise RuntimeError(f"MCP error: {data['error']}")
-    return data.get("result", {})
-
-
-def _mcp_list_tools(mcp_url: str = GMAIL_MCP_URL) -> list[str]:
-    payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/list",
-        "params": {},
+    payload = data.get("payload", {})
+    msg_headers = payload.get("headers", [])
+    return {
+        "subject": _extract_header(msg_headers, "Subject"),
+        "from": _extract_header(msg_headers, "From"),
+        "date": _extract_header(msg_headers, "Date"),
+        "body": _extract_body(payload),
+        "snippet": data.get("snippet", ""),
     }
-    resp = httpx.post(mcp_url, json=payload, headers=_get_auth_headers(), timeout=15.0)
-    resp.raise_for_status()
-    data = resp.json()
-    if "error" in data:
-        raise RuntimeError(f"MCP error: {data['error']}")
-
-    result = data.get("result", {})
-    tools = result.get("tools", [])
-    return [tool.get("name", "") for tool in tools if isinstance(tool, dict) and tool.get("name")]
 
 
-def _resolve_search_tool_name(mcp_url: str = GMAIL_MCP_URL, configured_tool: str = "") -> str:
-    cache_key = f"{mcp_url}|{configured_tool}"
-    if cache_key in _TOOL_NAME_CACHE:
-        return _TOOL_NAME_CACHE[cache_key]
-
-    candidates = [
-        configured_tool,
-        DEFAULT_SEARCH_TOOL,
-        "search_emails",
-        "gmail_search_emails",
-        "gmail.search_emails",
-        "gmail_search_threads",
-        "gmail.search_threads",
-    ]
-    candidates = [name for name in candidates if name]
-
+def _search_messages(query: str, max_results: int) -> list[dict]:
+    """Real two-step Gmail search: list message IDs, then fetch each in full.
+    Fails soft — a missing/invalid token or a search-level error returns [];
+    a single message that fails to fetch is skipped, not fatal to the batch."""
+    headers = _auth_headers()
+    if headers is None:
+        return []
     try:
-        tools = _mcp_list_tools(mcp_url)
-    except Exception:
-        _TOOL_NAME_CACHE[cache_key] = configured_tool or DEFAULT_SEARCH_TOOL
-        return _TOOL_NAME_CACHE[cache_key]
+        ids = _list_message_ids(query, max_results, headers)
+    except Exception as e:
+        print(f"[gmail_reader] Gmail search failed: {e}", file=sys.stderr)
+        return []
 
-    for candidate in candidates:
-        if candidate in tools:
-            _TOOL_NAME_CACHE[cache_key] = candidate
-            return candidate
-
-    for tool in tools:
-        lowered = tool.lower()
-        if "search" in lowered and ("email" in lowered or "thread" in lowered):
-            _TOOL_NAME_CACHE[cache_key] = tool
-            return tool
-
-    _TOOL_NAME_CACHE[cache_key] = configured_tool or DEFAULT_SEARCH_TOOL
-    return _TOOL_NAME_CACHE[cache_key]
+    messages = []
+    for msg_id in ids:
+        try:
+            messages.append(_get_message(msg_id, headers))
+        except Exception as e:
+            print(f"[gmail_reader] Skipping message {msg_id}: {e}", file=sys.stderr)
+    return messages
 
 
-def _resolve_draft_tool_name(mcp_url: str = GMAIL_MCP_URL, configured_tool: str = "") -> str:
-    cache_key = f"draft|{mcp_url}|{configured_tool}"
-    if cache_key in _TOOL_NAME_CACHE:
-        return _TOOL_NAME_CACHE[cache_key]
+# ── Mode 1: cross-reference search ───────────────────────────────────────
 
-    candidates = [
-        configured_tool,
-        DEFAULT_DRAFT_TOOL,
-        "gmail_create_draft",
-        "gmail.create_draft",
-        "draft_email",
-        "create_email_draft",
-    ]
-    candidates = [name for name in candidates if name]
-
-    try:
-        tools = _mcp_list_tools(mcp_url)
-    except Exception:
-        _TOOL_NAME_CACHE[cache_key] = configured_tool or DEFAULT_DRAFT_TOOL
-        return _TOOL_NAME_CACHE[cache_key]
-
-    for candidate in candidates:
-        if candidate in tools:
-            _TOOL_NAME_CACHE[cache_key] = candidate
-            return candidate
-
-    for tool in tools:
-        lowered = tool.lower()
-        if "draft" in lowered and not any(word in lowered for word in _UNSAFE_DRAFT_SUBSTRINGS):
-            _TOOL_NAME_CACHE[cache_key] = tool
-            return tool
-
-    _TOOL_NAME_CACHE[cache_key] = configured_tool or DEFAULT_DRAFT_TOOL
-    return _TOOL_NAME_CACHE[cache_key]
-
-
-def _parse_mcp_content(result: dict) -> list[dict]:
-    emails = []
-    for item in result.get("content", []):
-        if isinstance(item, dict) and item.get("type") == "text":
-            try:
-                parsed = json.loads(item["text"])
-                if isinstance(parsed, list):
-                    emails.extend(parsed)
-                elif isinstance(parsed, dict):
-                    emails.append(parsed)
-            except json.JSONDecodeError:
-                emails.append({"raw": item["text"]})
-    return emails
-
-
-# ── Mode 1: cross-reference search ───────────────────────────────────────────
-
-def search_emails(
-    company: str,
-    max_results: int = 5,
-    mcp_url: str = GMAIL_MCP_URL,
-    tool_name: str = "",
-) -> list[dict]:
+def search_emails(company: str, max_results: int = 5) -> list[dict]:
     """Find emails in Gmail that mention a specific company."""
     query = f'"{company}" (internship OR recruiting OR opportunity OR application)'
-    try:
-        resolved_tool = _resolve_search_tool_name(mcp_url, tool_name)
-        result = _mcp_call(resolved_tool, {"query": query, "max_results": max_results}, mcp_url=mcp_url)
-        return _parse_mcp_content(result)
-    except Exception as e:
-        print(f"[gmail_reader] Warning: could not search Gmail for '{company}': {e}", file=sys.stderr)
-        return []
+    return _search_messages(query, max_results)
 
 
 def format_emails_for_context(emails: list[dict]) -> str:
@@ -194,9 +209,9 @@ def format_emails_for_context(emails: list[dict]) -> str:
         return ""
     lines = ["## Recruiter Emails Found in Gmail\n"]
     for i, email in enumerate(emails, 1):
-        subject = email.get("subject", email.get("Subject", ""))
-        sender = email.get("from", email.get("From", ""))
-        date = email.get("date", email.get("Date", ""))
+        subject = email.get("subject", "")
+        sender = email.get("from", "")
+        date = email.get("date", "")
         snippet = email.get("snippet", email.get("body", ""))[:400]
         lines.append(f"### Email {i}")
         if subject: lines.append(f"**Subject:** {subject}")
@@ -207,7 +222,7 @@ def format_emails_for_context(emails: list[dict]) -> str:
     return "\n".join(lines)
 
 
-# ── Mode 2: independent recruiter listing extraction ─────────────────────────
+# ── Mode 2: independent recruiter listing extraction ─────────────────────
 
 @dataclass
 class EmailListing:
@@ -268,29 +283,19 @@ def _extract_role_from_email(subject: str, body: str) -> str:
     return subject_clean[:80] if subject_clean else "Internship"
 
 
-def get_recruiter_listings(
-    max_results: int = 20,
-    mcp_url: str = GMAIL_MCP_URL,
-    tool_name: str = "",
-) -> list[EmailListing]:
+def get_recruiter_listings(max_results: int = 20) -> list[EmailListing]:
     """
     Scan Gmail for recruiter outreach emails and return them as EmailListing objects.
     Each listing contains the full email body as the job description context.
     """
-    try:
-        resolved_tool = _resolve_search_tool_name(mcp_url, tool_name)
-        result = _mcp_call(resolved_tool, {"query": RECRUITER_QUERY, "max_results": max_results}, mcp_url=mcp_url)
-        emails = _parse_mcp_content(result)
-    except Exception as e:
-        print(f"[gmail_reader] Could not fetch recruiter listings: {e}", file=sys.stderr)
-        return []
+    emails = _search_messages(RECRUITER_QUERY, max_results)
 
     listings = []
     for email in emails:
-        subject = email.get("subject", email.get("Subject", ""))
-        sender  = email.get("from", email.get("From", ""))
-        date    = email.get("date", email.get("Date", ""))
-        body    = email.get("body", email.get("snippet", ""))
+        subject = email.get("subject", "")
+        sender  = email.get("from", "")
+        date    = email.get("date", "")
+        body    = email.get("body", "") or email.get("snippet", "")
 
         company = _extract_company_from_email(subject, sender, body)
         role    = _extract_role_from_email(subject, body)
@@ -312,12 +317,25 @@ def get_recruiter_listings(
 
 # ── Draft creation ────────────────────────────────────────────────────────
 
-def create_draft(to: str, subject: str, body: str, mcp_url: str = GMAIL_MCP_URL, tool_name: str = "") -> bool:
-    """Creates a Gmail draft via MCP. Never sends. Returns True on success,
+def create_draft(to: str, subject: str, body: str) -> bool:
+    """Creates a Gmail draft via the real Gmail API. Never sends — the send
+    endpoint is never called anywhere in this file. Returns True on success,
     False on any failure (caught and logged, never raises)."""
+    headers = _auth_headers()
+    if headers is None:
+        return False
     try:
-        resolved_tool = _resolve_draft_tool_name(mcp_url, tool_name)
-        _mcp_call(resolved_tool, {"to": to, "subject": subject, "body": body}, mcp_url=mcp_url)
+        message = MIMEText(body)
+        message["To"] = to
+        message["Subject"] = subject
+        raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
+        resp = httpx.post(
+            f"{GMAIL_API_BASE}/drafts",
+            json={"message": {"raw": raw}},
+            headers=headers,
+            timeout=15.0,
+        )
+        resp.raise_for_status()
         return True
     except Exception as e:
         print(f"[gmail_reader] Warning: could not create draft for '{to}': {e}", file=sys.stderr)
@@ -327,7 +345,10 @@ def create_draft(to: str, subject: str, body: str, mcp_url: str = GMAIL_MCP_URL,
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "listings"
 
-    if mode == "company" and len(sys.argv) > 2:
+    if mode == "auth":
+        run_oauth_flow()
+
+    elif mode == "company" and len(sys.argv) > 2:
         company = sys.argv[2]
         print(f"Searching Gmail for emails about '{company}'...\n")
         emails = search_emails(company)
@@ -341,4 +362,4 @@ if __name__ == "__main__":
             for l in listings:
                 print(json.dumps(asdict(l), indent=2, default=str))
         else:
-            print("No recruiter listings found (or Gmail MCP not reachable).")
+            print("No recruiter listings found (or Gmail not authenticated — run `python3 gmail_reader.py auth`).")

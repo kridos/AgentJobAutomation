@@ -21,6 +21,18 @@ Authenticate the `gh` CLI:
 gh auth login
 ```
 
+### Gmail API setup (optional — used for recruiter-email cross-referencing/sourcing and cold-email drafts)
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create a project (or use an existing one), enable the **Gmail API**, and create an OAuth 2.0 Client ID of type **Desktop app**.
+2. Download the client's JSON and save it as `credentials.json` in the repo root (gitignored — never commit this).
+3. Run the one-time login:
+   ```bash
+   automator gmail auth
+   ```
+   This opens your browser for Google's consent screen. After you approve, it saves a refreshable token to `token.json` (also gitignored). Every later run refreshes it silently — no need to repeat this unless the token is revoked or deleted.
+
+Without this setup, Gmail-dependent steps (recruiter cross-referencing in `automator run`, and `automator outreach run`'s drafting) fail non-fatally and are skipped — everything else still works.
+
 ## Context Files
 
 Drop your context files into `/context/` before running:
@@ -118,7 +130,7 @@ And `output/YYYY-MM-DD/summary.md` — counts and status for every listing.
 
 ```bash
 automator test scraper                    # test scraping
-automator test gmail company Google        # test Gmail MCP
+automator test gmail company Google        # test Gmail search (needs `automator gmail auth` first)
 automator test generator                   # test Ollama generation
 automator test researcher Stripe "SWE Intern"  # test web research
 ```
