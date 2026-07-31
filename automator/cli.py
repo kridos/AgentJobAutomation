@@ -151,7 +151,9 @@ def _cmd_test(args: argparse.Namespace) -> None:
 
 
 def _cmd_gui(args: argparse.Namespace) -> None:
-    print("GUI not built yet — coming in a later update")
+    from gui import run_gui
+
+    run_gui(host=args.host, port=args.port)
 
 
 def _cmd_prep(args: argparse.Namespace) -> None:
@@ -231,7 +233,9 @@ def build_parser() -> argparse.ArgumentParser:
     test_p.add_argument("module_args", nargs="*", help="Extra args passed to the module's self-test")
     test_p.set_defaults(func=_cmd_test)
 
-    gui_p = subparsers.add_parser("gui", help="Launch the GUI (not yet implemented)")
+    gui_p = subparsers.add_parser("gui", help="Launch the local applications/outreach/prep dashboard")
+    gui_p.add_argument("--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)")
+    gui_p.add_argument("--port", type=int, default=8420, help="Port to bind (default: 8420)")
     gui_p.set_defaults(func=_cmd_gui)
 
     return parser

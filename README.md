@@ -88,10 +88,20 @@ automator flush
 # Archive processed.json (clears it by default)
 automator archive
 automator archive --keep   # archive without clearing
+```
 
-# GUI (not yet implemented)
+### Review applications and mark status
+
+```bash
 automator gui
 ```
+
+Starts a local dashboard at http://127.0.0.1:8420/ — browse generated
+applications (resume, cover letter, job description), mark each as
+applied/skipped/pending, view outreach contact status, and view generated
+interview prep material. Local-only (binds to 127.0.0.1); does not submit
+applications or trigger generation — run `automator run`/`outreach`/`prep`
+for that.
 
 ## Output
 
