@@ -141,3 +141,20 @@ def test_resume_content_is_html_escaped(tmp_path, monkeypatch):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_path_traversal_attempts_rejected(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _seed_app()
+    server = _running_server()
+    try:
+        # POST with traversal attempt should be rejected
+        status, _, _ = _post(server, "/applications/../../etc/passwd/status", "status=applied")
+        assert status == 400
+
+        # GET /prep with traversal attempt should be rejected
+        status, _ = _get(server, "/prep/../../etc/passwd")
+        assert status == 404
+    finally:
+        server.shutdown()
+        server.server_close()

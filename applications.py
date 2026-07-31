@@ -83,9 +83,10 @@ def get_application(app_id: str) -> dict | None:
 def set_application_status(app_id: str, status: str) -> bool:
     if status not in _VALID_STATUSES:
         return False
-    app_dir = Path("output") / app_id
-    if not (app_dir / "listing.json").exists():
+    known_ids = {a["id"] for a in list_applications()}
+    if app_id not in known_ids:
         return False
+    app_dir = Path("output") / app_id
     (app_dir / "status.json").write_text(json.dumps({"status": status}, indent=2), encoding="utf-8")
     return True
 

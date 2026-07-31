@@ -87,3 +87,4 @@ def test_set_application_status_rejects_invalid_status_and_unknown_id(tmp_path, 
 
     assert applications.set_application_status(app_id, "bogus") is False
     assert applications.set_application_status("nope/nope/nope/nope", "applied") is False
+    assert applications.set_application_status("../../etc/passwd", "applied") is False

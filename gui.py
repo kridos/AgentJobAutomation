@@ -45,7 +45,7 @@ def _render_applications_list() -> str:
         rows.append(
             f'<tr><td><a href="/applications/{app_id}">{html.escape(a["company"])}</a></td>'
             f'<td>{html.escape(a["role"])}</td><td>{html.escape(a["date"])}</td>'
-            f'<td>{a["score"]}</td><td>{html.escape(a["status"])}</td><td>{prep}</td></tr>'
+            f'<td>{html.escape(str(a["score"]))}</td><td>{html.escape(a["status"])}</td><td>{prep}</td></tr>'
         )
     return (
         "<table><tr><th>Company</th><th>Role</th><th>Date</th><th>Score</th>"
@@ -63,7 +63,7 @@ def _render_application_detail(app: dict) -> str:
     )
     jd = html.escape(app["job_description"]) or "(not fetched)"
     return (
-        f'<p>Status: <strong>{html.escape(app["status"])}</strong> | Score: {app["score"]}</p>'
+        f'<p>Status: <strong>{html.escape(app["status"])}</strong> | Score: {html.escape(str(app["score"]))}</p>'
         f"<p>{buttons}</p>"
         f'<h2>Resume</h2><pre>{html.escape(app["resume_md"])}</pre>'
         f'<h2>Cover Letter</h2><pre>{html.escape(app["cover_md"])}</pre>'
@@ -114,6 +114,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_html(200, _layout(title, _render_application_detail(app)))
         elif path.startswith("/prep/"):
             app_id = path[len("/prep/"):]
+            app = get_application(app_id)
+            if app is None:
+                self._not_found("No such application.")
+                return
             prep_path = Path("output") / app_id / "interview_prep.md"
             if not prep_path.exists():
                 self._not_found(
