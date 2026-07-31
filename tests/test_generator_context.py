@@ -1,4 +1,30 @@
+import httpx
+
 import generator
+
+
+def test_call_ollama_uses_native_api_with_explicit_num_ctx(monkeypatch):
+    captured_request = {}
+
+    def fake_post(url, json, timeout):
+        captured_request["url"] = url
+        captured_request["json"] = json
+        return httpx.Response(
+            200,
+            json={"message": {"role": "assistant", "content": "hello"}},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(generator.httpx, "post", fake_post)
+
+    result = generator._call_ollama("a prompt", model="qwen3:14b", temperature=0.3, max_tokens=2048)
+
+    assert result == "hello"
+    assert captured_request["url"] == f"{generator.OLLAMA_BASE_URL}/api/chat"
+    options = captured_request["json"]["options"]
+    assert options["num_ctx"] == generator.DEFAULT_NUM_CTX
+    assert options["num_predict"] == 2048
+    assert options["temperature"] == 0.3
 
 
 def test_load_context_files_includes_new_keys_defaulting_empty(tmp_path, monkeypatch, capsys):

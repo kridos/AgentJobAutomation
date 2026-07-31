@@ -239,6 +239,9 @@ def _apply_canonical_project_bullets(resume_md: str, resume_master: str) -> str:
     return "\n".join(result)
 
 
+DEFAULT_NUM_CTX = 8192
+
+
 def _call_ollama(
     prompt: str,
     model: str = DEFAULT_MODEL,
@@ -246,22 +249,29 @@ def _call_ollama(
     temperature: float = 0.7,
     max_tokens: int = 4096,
 ) -> str:
-    """Call Ollama via its OpenAI-compatible chat completions endpoint."""
+    """Call Ollama's native /api/chat endpoint (not the OpenAI-compat one) so
+    we can set num_ctx explicitly. Ollama defaults to a small context window
+    (often 2048) when it isn't set, which silently truncates long prompts —
+    the model then "forgets" earlier context (e.g. resume facts) instead of
+    erroring, and fills the gap with invented specifics."""
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": temperature,
-        "max_tokens": max_tokens,
         "stream": False,
+        "options": {
+            "temperature": temperature,
+            "num_predict": max_tokens,
+            "num_ctx": DEFAULT_NUM_CTX,
+        },
     }
     resp = httpx.post(
-        f"{base_url}/v1/chat/completions",
+        f"{base_url}/api/chat",
         json=payload,
         timeout=120.0,
     )
     resp.raise_for_status()
     data = resp.json()
-    return data["choices"][0]["message"]["content"]
+    return data["message"]["content"]
 
 
 def _build_resume_prompt(
