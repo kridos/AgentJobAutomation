@@ -8,12 +8,13 @@ import gui
 
 def _seed_app(date="2026-07-01", source="simplify", company="Acme Corp",
               role="SWE Intern", company_slug="acme_corp", role_slug="swe_intern",
-              resume_md="# Resume\n", with_prep=False):
+              resume_md="# Resume\n", with_prep=False, link=""):
     app_dir = Path("output") / date / source / company_slug / role_slug
     app_dir.mkdir(parents=True, exist_ok=True)
-    (app_dir / "listing.json").write_text(
-        json.dumps({"company": company, "role": role}), encoding="utf-8"
-    )
+    listing = {"company": company, "role": role}
+    if link:
+        listing["link"] = link
+    (app_dir / "listing.json").write_text(json.dumps(listing), encoding="utf-8")
     (app_dir / "quality_score.json").write_text(json.dumps({"overall": 90}), encoding="utf-8")
     (app_dir / "resume.md").write_text(resume_md, encoding="utf-8")
     (app_dir / "cover_letter.md").write_text("Dear team,\n", encoding="utf-8")
@@ -72,6 +73,38 @@ def test_application_detail_shows_resume_and_404_for_unknown(tmp_path, monkeypat
 
         status, _ = _get(server, "/applications/nope/nope/nope/nope")
         assert status == 404
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_application_link_rendered_as_clickable_apply_link(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    app_id = _seed_app(link="https://jobs.example.com/acme/swe-intern")
+    server = _running_server()
+    try:
+        status, list_body = _get(server, "/")
+        assert status == 200
+        assert 'href="https://jobs.example.com/acme/swe-intern"' in list_body
+
+        status, detail_body = _get(server, f"/applications/{app_id}")
+        assert status == 200
+        assert 'href="https://jobs.example.com/acme/swe-intern"' in detail_body
+        assert "Apply on company site" in detail_body
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_non_http_link_scheme_is_not_rendered_as_href(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    app_id = _seed_app(link="javascript:alert(1)")
+    server = _running_server()
+    try:
+        status, detail_body = _get(server, f"/applications/{app_id}")
+        assert status == 200
+        assert 'href="javascript:alert(1)"' not in detail_body
+        assert "Apply on company site" not in detail_body
     finally:
         server.shutdown()
         server.server_close()

@@ -34,6 +34,14 @@ def _layout(title: str, body: str) -> str:
     )
 
 
+def _safe_link(url: str) -> str:
+    """Returns url if it's http(s), else "" — hrefs can carry javascript:
+    XSS that plain html.escape() doesn't neutralize, so scheme-check first."""
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+    return ""
+
+
 def _render_applications_list() -> str:
     apps = list_applications()
     if not apps:
@@ -42,14 +50,17 @@ def _render_applications_list() -> str:
     for a in apps:
         app_id = html.escape(a["id"])
         prep = f'<a href="/prep/{app_id}">view</a>' if a["has_prep"] else "-"
+        link = _safe_link(a.get("link", ""))
+        apply_link = f'<a href="{html.escape(link)}" target="_blank" rel="noopener">apply</a>' if link else "-"
         rows.append(
             f'<tr><td><a href="/applications/{app_id}">{html.escape(a["company"])}</a></td>'
             f'<td>{html.escape(a["role"])}</td><td>{html.escape(a["date"])}</td>'
-            f'<td>{html.escape(str(a["score"]))}</td><td>{html.escape(a["status"])}</td><td>{prep}</td></tr>'
+            f'<td>{html.escape(str(a["score"]))}</td><td>{html.escape(a["status"])}</td>'
+            f'<td>{prep}</td><td>{apply_link}</td></tr>'
         )
     return (
         "<table><tr><th>Company</th><th>Role</th><th>Date</th><th>Score</th>"
-        "<th>Status</th><th>Prep</th></tr>" + "".join(rows) + "</table>"
+        "<th>Status</th><th>Prep</th><th>Apply</th></tr>" + "".join(rows) + "</table>"
     )
 
 
@@ -61,9 +72,15 @@ def _render_application_detail(app: dict) -> str:
         f'<button type="submit">{s}</button></form>'
         for s in ("applied", "skipped", "pending")
     )
+    link = _safe_link(app.get("link", ""))
+    apply_link = (
+        f'<p><a href="{html.escape(link)}" target="_blank" rel="noopener">Apply on company site &rarr;</a></p>'
+        if link else ""
+    )
     jd = html.escape(app["job_description"]) or "(not fetched)"
     return (
         f'<p>Status: <strong>{html.escape(app["status"])}</strong> | Score: {html.escape(str(app["score"]))}</p>'
+        f"{apply_link}"
         f"<p>{buttons}</p>"
         f'<h2>Resume</h2><pre>{html.escape(app["resume_md"])}</pre>'
         f'<h2>Cover Letter</h2><pre>{html.escape(app["cover_md"])}</pre>'

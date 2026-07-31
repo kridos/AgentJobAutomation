@@ -6,12 +6,13 @@ import applications
 
 def _seed_app(date="2026-07-01", source="simplify", company="Acme Corp",
               role="SWE Intern", company_slug="acme_corp", role_slug="swe_intern",
-              score=85, write_score=True):
+              score=85, write_score=True, link=""):
     app_dir = Path("output") / date / source / company_slug / role_slug
     app_dir.mkdir(parents=True, exist_ok=True)
-    (app_dir / "listing.json").write_text(
-        json.dumps({"company": company, "role": role}), encoding="utf-8"
-    )
+    listing = {"company": company, "role": role}
+    if link:
+        listing["link"] = link
+    (app_dir / "listing.json").write_text(json.dumps(listing), encoding="utf-8")
     if write_score:
         (app_dir / "quality_score.json").write_text(
             json.dumps({"overall": score}), encoding="utf-8"
@@ -37,6 +38,16 @@ def test_list_applications_defaults_to_pending_and_reads_score(tmp_path, monkeyp
     assert app["score"] == 85
     assert app["status"] == "pending"
     assert app["has_prep"] is False
+    assert app["link"] == ""
+
+
+def test_list_applications_surfaces_listing_link(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _seed_app(link="https://jobs.example.com/acme/swe-intern")
+
+    apps = applications.list_applications()
+
+    assert apps[0]["link"] == "https://jobs.example.com/acme/swe-intern"
 
 
 def test_list_applications_skips_malformed_listing_but_keeps_others(tmp_path, monkeypatch, capsys):

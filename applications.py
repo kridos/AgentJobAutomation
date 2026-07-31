@@ -62,6 +62,7 @@ def list_applications() -> list[dict]:
             "date": date,
             "score": score.get("overall", 0),
             "status": status,
+            "link": listing.get("link", ""),
             "has_prep": (app_dir / "interview_prep.md").exists(),
         })
 
