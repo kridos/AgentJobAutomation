@@ -56,11 +56,69 @@ def _slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
 
-def run_manual() -> None:
-    config   = _load_config()
-    ollama   = config.get("ollama", {})
-    output   = config.get("output", {})
+def submit_manual_entry(
+    company: str,
+    role: str,
+    location: str = "",
+    link: str = "",
+    date_posted: str = "",
+    job_description: str = "",
+    extra_context: str = "",
+) -> Path:
+    """Generate and save a resume/cover letter for a manually-entered listing.
+    Returns the output directory. Raises ValueError/RuntimeError on bad input
+    or generation failure — callers (CLI, GUI) decide how to report it."""
+    if not company or not role:
+        raise ValueError("Company and role are required.")
 
+    config = _load_config()
+    ollama = config.get("ollama", {})
+    output = config.get("output", {})
+    date_posted = date_posted or date.today().isoformat()
+
+    listing_dict = {
+        "company":     company,
+        "role":        role,
+        "location":    location,
+        "link":        link,
+        "date_posted": date_posted,
+        "id":          f"manual-{_slugify(company)}-{_slugify(role)}",
+        "source":      "manual",
+    }
+
+    from generator import generate
+    try:
+        resume_md, cover_md = generate(
+            listing_dict,
+            email_context=extra_context,
+            research_context="",
+            job_description=job_description,
+            model=ollama.get("model", "qwen3:14b"),
+            base_url=ollama.get("base_url", "http://localhost:11434"),
+            temperature=ollama.get("temperature", 0.7),
+            max_tokens=ollama.get("max_tokens", 4096),
+        )
+    except Exception as e:
+        raise RuntimeError(f"Generation failed: {e}") from e
+
+    today      = date.today().isoformat()
+    output_dir = Path(output.get("base_dir", "output")) / today / "manual" / _slugify(company)
+
+    # Handle multiple roles at the same company
+    role_slug  = _slugify(role)[:40]
+    output_dir = output_dir / role_slug
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    (output_dir / "resume.md").write_text(resume_md, encoding="utf-8")
+    (output_dir / "cover_letter.md").write_text(cover_md, encoding="utf-8")
+    (output_dir / "listing.json").write_text(json.dumps(listing_dict, indent=2), encoding="utf-8")
+    if job_description:
+        (output_dir / "job_description.txt").write_text(job_description, encoding="utf-8")
+
+    return output_dir
+
+
+def run_manual() -> None:
     print("\n=== Manual Job Entry ===\n")
     print("Fill in the details for the role you found. Press Enter to skip optional fields.\n")
 
@@ -76,51 +134,15 @@ def run_manual() -> None:
     print()
     extra_context = _prompt_multiline("Any extra context? (recruiter notes, referral info, etc. — optional):")
 
-    if not company or not role:
-        print("Company and role are required.")
-        sys.exit(1)
-
-    listing_dict = {
-        "company":     company,
-        "role":        role,
-        "location":    location,
-        "link":        link,
-        "date_posted": date_posted,
-        "id":          f"manual-{_slugify(company)}-{_slugify(role)}",
-        "source":      "manual",
-    }
-
     print(f"\n[manual] Generating for {company} — {role}...")
 
-    from generator import generate
     try:
-        resume_md, cover_md = generate(
-            listing_dict,
-            email_context=extra_context,
-            research_context="",
-            job_description=job_description,
-            model=ollama.get("model", "qwen3:14b"),
-            base_url=ollama.get("base_url", "http://localhost:11434"),
-            temperature=ollama.get("temperature", 0.7),
-            max_tokens=ollama.get("max_tokens", 4096),
+        output_dir = submit_manual_entry(
+            company, role, location, link, date_posted, job_description, extra_context,
         )
-    except Exception as e:
-        print(f"Generation failed: {e}", file=sys.stderr)
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
         sys.exit(1)
-
-    today      = date.today().isoformat()
-    output_dir = Path(output.get("base_dir", "output")) / today / "manual" / _slugify(company)
-
-    # Handle multiple roles at the same company
-    role_slug  = _slugify(role)[:40]
-    output_dir = output_dir / role_slug
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    (output_dir / "resume.md").write_text(resume_md, encoding="utf-8")
-    (output_dir / "cover_letter.md").write_text(cover_md, encoding="utf-8")
-    (output_dir / "listing.json").write_text(json.dumps(listing_dict, indent=2), encoding="utf-8")
-    if job_description:
-        (output_dir / "job_description.txt").write_text(job_description, encoding="utf-8")
 
     print(f"\n[manual] Done! Files saved to: {output_dir}")
     print(f"  resume.md")

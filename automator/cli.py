@@ -251,6 +251,9 @@ def build_parser() -> argparse.ArgumentParser:
     gui_p.add_argument("--port", type=int, default=8420, help="Port to bind (default: 8420)")
     gui_p.set_defaults(func=_cmd_gui)
 
+    help_p = subparsers.add_parser("help", help="Show this help message")
+    help_p.set_defaults(func=lambda args: parser.print_help())
+
     return parser
 
 

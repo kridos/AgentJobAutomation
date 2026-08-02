@@ -87,6 +87,28 @@ def _save_outreach_output(contact: dict, body: str) -> None:
     (output_dir / "contact.json").write_text(json.dumps(contact, indent=2), encoding="utf-8")
 
 
+def add_contact(company: str, contact_email: str, contact_name: str = "", notes: str = "") -> dict:
+    """Add a manually-confirmed outreach contact. Raises ValueError if
+    required fields are missing. Returns the saved contact dict."""
+    if not company or not contact_email:
+        raise ValueError("Company and contact email are required.")
+
+    contact_id = f"{_slugify(company)}-{_slugify(contact_name or contact_email)}"
+    contact = {
+        "id": contact_id,
+        "company": company,
+        "contact_name": contact_name,
+        "contact_email": contact_email,
+        "notes": notes,
+        "confirmed": True,
+    }
+
+    contacts = _load_contacts()
+    contacts.append(contact)
+    _save_contacts(contacts)
+    return contact
+
+
 def add_contact_interactive() -> None:
     from manual_run import _prompt, _prompt_multiline
 
@@ -96,22 +118,11 @@ def add_contact_interactive() -> None:
     contact_email = _prompt("Contact email")
     notes = _prompt_multiline("Notes (optional — how you found them, what to mention):")
 
-    if not company or not contact_email:
-        print("Company and contact email are required.")
+    try:
+        add_contact(company, contact_email, contact_name, notes)
+    except ValueError as e:
+        print(str(e))
         sys.exit(1)
-
-    contact_id = f"{_slugify(company)}-{_slugify(contact_name or contact_email)}"
-
-    contacts = _load_contacts()
-    contacts.append({
-        "id": contact_id,
-        "company": company,
-        "contact_name": contact_name,
-        "contact_email": contact_email,
-        "notes": notes,
-        "confirmed": True,
-    })
-    _save_contacts(contacts)
 
     print(f"\n[outreach] Added {company} ({contact_email}) to {CONTACTS_PATH}")
 
@@ -357,6 +368,7 @@ def list_outreach_status() -> list[dict]:
     processed = _load_outreach_processed()
     return [
         {
+            "id": c.get("id", ""),
             "company": c.get("company", ""),
             "contact_email": c.get("contact_email", ""),
             "status": "drafted" if c.get("id", "") in processed else "pending",
