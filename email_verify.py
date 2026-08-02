@@ -5,8 +5,9 @@ outreach.py or any scraper.
 """
 
 import smtplib
-import subprocess
 import sys
+
+import dns.resolver
 
 _GENERIC_PREFIXES = ["founders", "hello", "hi", "team", "info"]
 
@@ -16,25 +17,12 @@ def _guess_email_candidates(domain: str) -> list[str]:
 
 
 def _resolve_mx_host(domain: str) -> str:
-    """Shells out to `dig +short MX <domain>`, returns the lowest-priority
-    (i.e. most-preferred) hostname. Returns '' on any failure — never raises."""
+    """Looks up MX records for domain, returns the lowest-priority (i.e.
+    most-preferred) hostname. Returns '' on any failure — never raises."""
     try:
-        result = subprocess.run(
-            ["dig", "+short", "MX", domain],
-            capture_output=True, text=True, timeout=5.0,
-        )
-        if result.returncode != 0 or not result.stdout.strip():
-            return ""
-        records = []
-        for line in result.stdout.strip().splitlines():
-            parts = line.split()
-            if len(parts) == 2:
-                priority, host = parts
-                records.append((int(priority), host.rstrip(".")))
-        if not records:
-            return ""
-        records.sort(key=lambda r: r[0])
-        return records[0][1]
+        answers = dns.resolver.resolve(domain, "MX", lifetime=5.0)
+        best = min(answers, key=lambda r: r.preference)
+        return str(best.exchange).rstrip(".")
     except Exception as e:
         print(f"[email_verify] MX lookup failed for {domain}: {e}", file=sys.stderr)
         return ""

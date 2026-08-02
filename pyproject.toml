@@ -9,6 +9,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "google-auth>=2.0.0",
     "google-auth-oauthlib>=1.0.0",
+    "dnspython>=2.4.0",
 ]
 
 [project.optional-dependencies]
